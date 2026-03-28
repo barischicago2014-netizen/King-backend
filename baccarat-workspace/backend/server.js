@@ -395,6 +395,22 @@ app.post("/game/reset", auth, async (req, res) => {
   }
 });
 
+// ===== ADMIN CREATE USER =====
+app.post("/admin/create-user", async (req, res) => {
+  const secret = req.headers["x-admin-secret"];
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+  if (secret !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ message: "Eksik bilgi" });
+    const result = await createUser(username, password);
+    if (result.error) return res.status(400).json({ message: result.error });
+    return res.json({ ok: true, username: username.toLowerCase() });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
 // ===== FINISH (early exit with current balance) =====
 app.post("/game/finish", auth, async (req, res) => {
   try {
