@@ -35,6 +35,7 @@ const User = mongoose.model("User", UserSchema);
 
 const SessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  username: { type: String, default: null },
   balance: { type: Number, default: 100 },
   maxWin: { type: Number, default: 100 },
   fullHistory: [{ type: String }],
@@ -314,7 +315,7 @@ app.post("/demo/deal", (req, res) => {
 app.post("/game/start", auth, async (req, res) => {
   try {
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const session = await Session.create({ userId: req.user.id });
+    const session = await Session.create({ userId: req.user.id, username: req.user.username });
     return res.json({
       balance: session.balance, maxWin: session.maxWin,
       scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null,
