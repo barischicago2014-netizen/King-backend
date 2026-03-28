@@ -36,6 +36,8 @@ const User = mongoose.model("User", UserSchema);
 const SessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   username: { type: String, default: null },
+  bankroll: { type: Number, default: 100 },   // starting balance for this game
+  baseUnit: { type: Number, default: 0.5 },    // bankroll * 0.005
   balance: { type: Number, default: 100 },
   maxWin: { type: Number, default: 100 },
   fullHistory: [{ type: String }],
@@ -64,8 +66,7 @@ function auth(req, res, next) {
 }
 
 // ===== Algorithm =====
-const BARRIERS = [90, 80, 70, 60, 50, 40, 30, 20];
-const GAME_OVER_TARGET = 103;
+const BARRIER_PCTS = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
 
 function getLeader(bpHistory) {
   const b = bpHistory.filter((r) => r === "B").length;
@@ -73,9 +74,10 @@ function getLeader(bpHistory) {
   return b >= p ? "B" : "P";
 }
 
-function applyBarrier(balance, maxWin) {
-  // En küçük barajdan başla, balance'ın hemen üstündeki barajı bul
-  for (const barrier of [...BARRIERS].reverse()) {
+function applyBarrier(balance, maxWin, bankroll) {
+  // barriers scale with bankroll, iterate from lowest to find closest barrier above balance
+  const barriers = [...BARRIER_PCTS].reverse().map((p) => bankroll * p);
+  for (const barrier of barriers) {
     if (balance <= barrier && maxWin > barrier) return barrier;
   }
   return maxWin;
@@ -87,6 +89,10 @@ function getScoreboard(history) {
     P: history.filter((r) => r === "P").length,
     T: history.filter((r) => r === "T").length,
   };
+}
+
+function fmt(n) {
+  return Number(n.toFixed(2));
 }
 
 function processResult(result, s) {
@@ -103,20 +109,21 @@ function processResult(result, s) {
 
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
+  const GAME_OVER_TARGET = s.bankroll + 3 * s.baseUnit;
 
   // Waiting for first 3 B/P results
   if (s.bpHistory.length < 3) {
     return {
-      recommendation: null, unit: null,
-      balance: s.balance, scoreboard, history,
+      recommendation: null, unit: null, actualBet: null,
+      balance: fmt(s.balance), scoreboard, history,
       message: `${3 - s.bpHistory.length} sonuç daha girin`,
-      phase: "waiting",
+      phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll,
     };
   }
 
   const leader = getLeader(s.bpHistory);
 
-  // T: no balance change, same recommendation
+  // T: no balance change
   if (r === "T") {
     if (!s.currentSuggestion && s.phase !== "observation") {
       s.currentSuggestion = leader;
@@ -126,9 +133,10 @@ function processResult(result, s) {
     return {
       recommendation: s.phase === "observation" ? null : s.currentSuggestion,
       unit: s.phase === "observation" ? null : s.currentUnit,
-      balance: s.balance, scoreboard, history,
+      actualBet: s.phase === "observation" ? null : fmt(s.currentUnit * s.baseUnit),
+      balance: fmt(s.balance), scoreboard, history,
       message: "TIE — Değişiklik yok",
-      phase: s.phase,
+      phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll,
       observationLeft: s.phase === "observation" ? Math.max(0, 3 - s.observationCount) : 0,
     };
   }
@@ -137,26 +145,27 @@ function processResult(result, s) {
   if (s.phase === "observation") {
     s.observationCount++;
     if (s.observationCount >= 3) {
-      const recoveryBet = Math.max(1, (s.maxWin + 1) - s.balance);
+      const recoveryUnits = Math.max(1, Math.ceil((s.maxWin + s.baseUnit - s.balance) / s.baseUnit));
       s.phase = "active";
       s.currentSuggestion = leader;
-      s.currentUnit = recoveryBet;
+      s.currentUnit = recoveryUnits;
       s.consecutiveLosses = 0;
       s.lossStep = 0;
       s.observationCount = 0;
       return {
         recommendation: s.currentSuggestion, unit: s.currentUnit,
-        balance: s.balance, scoreboard, history,
-        message: `Sistem devreye girdi — Öneri: ${s.currentSuggestion} × ${recoveryBet} birim`,
-        phase: "active", observationLeft: 0,
+        actualBet: fmt(s.currentUnit * s.baseUnit),
+        balance: fmt(s.balance), scoreboard, history,
+        message: `Sistem devreye girdi — ${s.currentSuggestion} × ${s.currentUnit} birim (${fmt(s.currentUnit * s.baseUnit)})`,
+        phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
       };
     }
     return {
-      recommendation: null, unit: null,
-      balance: s.balance, scoreboard, history,
+      recommendation: null, unit: null, actualBet: null,
+      balance: fmt(s.balance), scoreboard, history,
       message: `Gözlem: ${3 - s.observationCount} el kaldı`,
-      phase: "observation",
-      observationLeft: 3 - s.observationCount,
+      phase: "observation", observationLeft: 3 - s.observationCount,
+      baseUnit: s.baseUnit, bankroll: s.bankroll,
     };
   }
 
@@ -171,9 +180,9 @@ function processResult(result, s) {
   const win = r === s.currentSuggestion;
 
   if (win) {
-    s.balance += s.currentUnit;
+    s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    const msg = `KAZANÇ +${s.currentUnit} birim`;
+    const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses = 0;
     s.lossStep = 0;
     s.currentSuggestion = leader;
@@ -183,21 +192,23 @@ function processResult(result, s) {
       s.phase = "gameover";
       return {
         gameOver: true, win: true,
-        recommendation: null, unit: null,
-        balance: s.balance, scoreboard, history,
-        message: "GAME OVER! +3 birim hedefine ulaşıldı!",
-        phase: "gameover",
+        recommendation: null, unit: null, actualBet: null,
+        balance: fmt(s.balance), scoreboard, history,
+        message: `GAME OVER! +3 birim hedefine ulaşıldı! (+${fmt(3 * s.baseUnit)})`,
+        phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll,
       };
     }
 
     return {
       win: true, recommendation: s.currentSuggestion, unit: s.currentUnit,
-      balance: s.balance, scoreboard, history, message: msg, phase: "active", observationLeft: 0,
+      actualBet: fmt(s.currentUnit * s.baseUnit),
+      balance: fmt(s.balance), scoreboard, history, message: msg,
+      phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
     };
   } else {
-    s.balance -= s.currentUnit;
-    s.maxWin = applyBarrier(s.balance, s.maxWin);
-    const msg = `KAYIP -${s.currentUnit} birim`;
+    s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
+    s.maxWin = applyBarrier(s.balance, s.maxWin, s.bankroll);
+    const msg = `KAYIP -${s.currentUnit} birim (-${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses++;
 
     if (s.consecutiveLosses >= 3) {
@@ -206,10 +217,10 @@ function processResult(result, s) {
       s.currentSuggestion = null;
       s.currentUnit = null;
       return {
-        win: false, recommendation: null, unit: null,
-        balance: s.balance, scoreboard, history,
+        win: false, recommendation: null, unit: null, actualBet: null,
+        balance: fmt(s.balance), scoreboard, history,
         message: "3 üst üste kayıp — 3 el gözlem modu",
-        phase: "observation", observationLeft: 3,
+        phase: "observation", observationLeft: 3, baseUnit: s.baseUnit, bankroll: s.bankroll,
       };
     }
 
@@ -224,7 +235,9 @@ function processResult(result, s) {
 
     return {
       win: false, recommendation: s.currentSuggestion, unit: s.currentUnit,
-      balance: s.balance, scoreboard, history, message: msg, phase: "active", observationLeft: 0,
+      actualBet: fmt(s.currentUnit * s.baseUnit),
+      balance: fmt(s.balance), scoreboard, history, message: msg,
+      phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
     };
   }
 }
@@ -243,9 +256,9 @@ function handScore(cards) {
   return cards.reduce((s, c) => s + cardValue(c), 0) % 10;
 }
 
-// In-memory demo session (stateless per deal)
 function newDemoSession() {
   return {
+    bankroll: 100, baseUnit: 0.5,
     balance: 100, maxWin: 100,
     fullHistory: [], bpHistory: [],
     consecutiveLosses: 0, lossStep: 0,
@@ -258,23 +271,7 @@ let demoSession = newDemoSession();
 // ===== HEALTH =====
 app.get("/", (req, res) => res.send("Backend running"));
 
-// ===== AUTH =====
-app.post("/register", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ message: "Kullanıcı adı ve şifre gerekli" });
-    if (password.length < 4) return res.status(400).json({ message: "Şifre en az 4 karakter olmalı" });
-    const existing = await User.findOne({ username: username.toLowerCase() });
-    if (existing) return res.status(400).json({ message: "Bu kullanıcı adı zaten alınmış" });
-    const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ username, password: hashed });
-    const token = jwt.sign({ id: String(user._id), username: user.username }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, username: user.username });
-  } catch (err) {
-    return res.status(500).json({ message: "Kayıt başarısız", error: err.message });
-  }
-});
-
+// ===== AUTH (login only, no public register) =====
 app.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -289,6 +286,15 @@ app.post("/login", async (req, res) => {
     return res.status(500).json({ message: "Giriş başarısız", error: err.message });
   }
 });
+
+// Internal only — no public route
+async function createUser(username, password) {
+  const existing = await User.findOne({ username: username.toLowerCase() });
+  if (existing) return { error: "Zaten var" };
+  const hashed = await bcrypt.hash(password, 10);
+  const user = await User.create({ username, password: hashed });
+  return { ok: true, id: user._id };
+}
 
 // ===== DEMO =====
 app.post("/demo/reset", (req, res) => {
@@ -315,12 +321,19 @@ app.post("/demo/deal", (req, res) => {
 // ===== GAME (authenticated) =====
 app.post("/game/start", auth, async (req, res) => {
   try {
+    const bankroll = Number(req.body.bankroll);
+    if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Geçerli bir bankroll girin" });
+    const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const session = await Session.create({ userId: req.user.id, username: req.user.username });
+    const session = await Session.create({
+      userId: req.user.id, username: req.user.username,
+      bankroll, baseUnit, balance: bankroll, maxWin: bankroll,
+    });
     return res.json({
       balance: session.balance, maxWin: session.maxWin,
+      bankroll, baseUnit,
       scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null,
-      unit: null, phase: "waiting", history: [],
+      unit: null, actualBet: null, phase: "waiting", history: [],
       message: "3 sonuç girin, sistem başlasın",
     });
   } catch (err) {
@@ -333,9 +346,11 @@ app.get("/game/state", auth, async (req, res) => {
     const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
     return res.json({
-      balance: session.balance, maxWin: session.maxWin,
+      balance: fmt(session.balance), maxWin: fmt(session.maxWin),
+      bankroll: session.bankroll, baseUnit: session.baseUnit,
       scoreboard: getScoreboard(session.fullHistory),
       recommendation: session.currentSuggestion, unit: session.currentUnit,
+      actualBet: session.currentUnit ? fmt(session.currentUnit * session.baseUnit) : null,
       phase: session.phase, history: session.fullHistory.slice(-20),
       observationLeft: session.phase === "observation" ? Math.max(0, 3 - session.observationCount) : 0,
     });
@@ -348,7 +363,7 @@ app.post("/game/result", auth, async (req, res) => {
   try {
     const { result } = req.body;
     const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
-    if (!session) return res.status(404).json({ message: "Aktif oyun yok. Önce /game/start çağırın." });
+    if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
     const state = processResult(result, session);
     await session.save();
     return res.json(state);
@@ -359,9 +374,22 @@ app.post("/game/result", auth, async (req, res) => {
 
 app.post("/game/reset", auth, async (req, res) => {
   try {
+    // bankroll = current accumulated balance from previous game
+    const bankroll = Number(req.body.bankroll);
+    if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Geçerli bir bankroll girin" });
+    const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const session = await Session.create({ userId: req.user.id, username: req.user.username });
-    return res.json({ message: "Oyun sıfırlandı", balance: session.balance });
+    const session = await Session.create({
+      userId: req.user.id, username: req.user.username,
+      bankroll, baseUnit, balance: bankroll, maxWin: bankroll,
+    });
+    return res.json({
+      balance: session.balance, maxWin: session.maxWin,
+      bankroll, baseUnit,
+      scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null,
+      unit: null, actualBet: null, phase: "waiting", history: [],
+      message: "3 sonuç girin, sistem başlasın",
+    });
   } catch (err) {
     return res.status(500).json({ message: "Reset başarısız", error: err.message });
   }

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 
 const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:10000";
-
 const api = axios.create({ baseURL: BASE_URL });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("bac_token");
@@ -15,7 +14,6 @@ const C = {
   gold: "#ffd700", blue: "#4488ff", red: "#ff4444",
   green: "#44cc77", white: "#ffffff", gray: "#888888", dark: "#444444",
 };
-
 const S = {
   page: { minHeight: "100vh", backgroundColor: C.bg, color: C.white, fontFamily: "Arial,sans-serif", display: "flex", flexDirection: "column" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", backgroundColor: C.card, borderBottom: `1px solid ${C.border}` },
@@ -29,12 +27,12 @@ const S = {
 };
 
 export default function App() {
-  const [screen, setScreen] = useState("landing");
+  const [screen, setScreen] = useState("landing"); // landing | login | bankroll | demo | game
   const [user, setUser] = useState(null);
-  const [showAuth, setShowAuth] = useState(false);
-  const [authTab, setAuthTab] = useState("login");
   const [form, setForm] = useState({ username: "", password: "" });
   const [formError, setFormError] = useState("");
+  const [bankrollInput, setBankrollInput] = useState("");
+  const [bankrollError, setBankrollError] = useState("");
   const [loading, setLoading] = useState(false);
   const [gs, setGs] = useState(null);
   const [dealCards, setDealCards] = useState(null);
@@ -52,26 +50,38 @@ export default function App() {
     setTimeout(() => setFlash(null), 2000);
   }
 
-  async function handleAuth() {
+  async function handleLogin() {
     setFormError("");
     if (!form.username.trim() || !form.password.trim()) { setFormError("Kullanıcı adı ve şifre gerekli"); return; }
     setLoading(true);
     try {
-      const endpoint = authTab === "login" ? "/login" : "/register";
-      const res = await api.post(endpoint, form);
+      const res = await api.post("/login", form);
       localStorage.setItem("bac_token", res.data.token);
       localStorage.setItem("bac_user", res.data.username);
       setUser({ token: res.data.token, username: res.data.username });
-      setShowAuth(false);
       setForm({ username: "", password: "" });
-      await api.post("/game/start");
-      const stateRes = await api.get("/game/state");
-      setGs(stateRes.data);
+      setScreen("bankroll");
+    } catch (err) {
+      setFormError(err.response?.data?.message || "Giriş başarısız");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleBankrollStart() {
+    setBankrollError("");
+    const amount = parseFloat(bankrollInput);
+    if (!amount || amount <= 0) { setBankrollError("Geçerli bir miktar girin"); return; }
+    setLoading(true);
+    try {
+      const res = await api.post("/game/start", { bankroll: amount });
+      setGs(res.data);
       setLastResult(null);
       setDealCards(null);
+      setBankrollInput("");
       setScreen("game");
     } catch (err) {
-      setFormError(err.response?.data?.message || "Bir hata oluştu");
+      setBankrollError(err.response?.data?.message || "Hata oluştu");
     } finally {
       setLoading(false);
     }
@@ -80,14 +90,15 @@ export default function App() {
   function handleLogout() {
     localStorage.removeItem("bac_token");
     localStorage.removeItem("bac_user");
-    setUser(null); setGs(null); setLastResult(null); setScreen("landing");
+    setUser(null); setGs(null); setLastResult(null);
+    setScreen("landing");
   }
 
   async function startDemo() {
     setLoading(true);
     try {
       await api.post("/demo/reset");
-      setGs({ balance: 100, scoreboard: { B: 0, P: 0, T: 0 }, phase: "waiting", history: [], recommendation: null, unit: null, message: "Kart çekmek için dokun" });
+      setGs({ balance: 100, bankroll: 100, baseUnit: 0.5, scoreboard: { B: 0, P: 0, T: 0 }, phase: "waiting", history: [], recommendation: null, unit: null, message: "Kart çekmek için dokun" });
       setDealCards(null); setLastResult(null); setScreen("demo");
     } finally { setLoading(false); }
   }
@@ -100,8 +111,8 @@ export default function App() {
       setDealCards(res.data.cards);
       setLastResult(res.data.result);
       setGs((prev) => ({ ...prev, ...res.data }));
-      if (res.data.win === true) showFlash(`+${res.data.unit || 1}`, C.green);
-      else if (res.data.win === false) showFlash(`-${res.data.unit || 1}`, C.red);
+      if (res.data.win === true) showFlash(`+${res.data.actualBet || res.data.unit}`, C.green);
+      else if (res.data.win === false) showFlash(`-${res.data.actualBet || res.data.unit}`, C.red);
     } finally { setLoading(false); }
   }
 
@@ -112,23 +123,21 @@ export default function App() {
       const res = await api.post("/game/result", { result });
       setLastResult(result);
       setGs((prev) => ({ ...prev, ...res.data }));
-      if (res.data.win === true) showFlash(`+${res.data.unit || 1} birim`, C.green);
-      else if (res.data.win === false) showFlash(`-${res.data.unit || 1} birim`, C.red);
+      if (res.data.win === true) showFlash(`+${res.data.actualBet}`, C.green);
+      else if (res.data.win === false) showFlash(`-${res.data.actualBet}`, C.red);
     } catch (err) {
-      if (err.response?.status === 404) {
-        await api.post("/game/start");
-        const stateRes = await api.get("/game/state");
-        setGs(stateRes.data);
-      }
+      if (err.response?.status === 404) setScreen("bankroll");
     } finally { setLoading(false); }
   }
 
   async function resetGame() {
+    // pass current balance as new bankroll (accumulate across games)
+    const newBankroll = gs?.balance || gs?.bankroll || 100;
     setLoading(true);
     try {
-      await api.post("/game/reset");
-      const stateRes = await api.get("/game/state");
-      setGs(stateRes.data); setLastResult(null);
+      const res = await api.post("/game/reset", { bankroll: newBankroll });
+      setGs(res.data);
+      setLastResult(null);
     } finally { setLoading(false); }
   }
 
@@ -153,13 +162,7 @@ export default function App() {
     return (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center", maxWidth: 380 }}>
         {[...history].reverse().map((r, i) => (
-          <span key={i} style={{
-            width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
-            borderRadius: 4, fontWeight: "bold", fontSize: 13,
-            backgroundColor: i === 0 ? (r === "B" ? "#1a3a6a" : r === "P" ? "#5a1a1a" : "#333") : C.card,
-            color: r === "B" ? C.blue : r === "P" ? C.red : C.gray,
-            border: `1px solid ${C.border}`,
-          }}>{r}</span>
+          <span key={i} style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, fontWeight: "bold", fontSize: 13, backgroundColor: i === 0 ? (r === "B" ? "#1a3a6a" : r === "P" ? "#5a1a1a" : "#333") : C.card, color: r === "B" ? C.blue : r === "P" ? C.red : C.gray, border: `1px solid ${C.border}` }}>{r}</span>
         ))}
       </div>
     );
@@ -167,16 +170,10 @@ export default function App() {
 
   function FlashOverlay() {
     if (!flash) return null;
-    return (
-      <div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", backgroundColor: flash.color, color: "#000", padding: "10px 28px", borderRadius: 20, fontWeight: "bold", fontSize: 20, zIndex: 200 }}>
-        {flash.text}
-      </div>
-    );
+    return <div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", backgroundColor: flash.color, color: "#000", padding: "10px 28px", borderRadius: 20, fontWeight: "bold", fontSize: 20, zIndex: 200 }}>{flash.text}</div>;
   }
 
-  // ═══════════════════════════════════════════
-  // LANDING
-  // ═══════════════════════════════════════════
+  // ═══ LANDING ════════════════════════════════════════
   if (screen === "landing") {
     return (
       <div style={S.page}>
@@ -184,37 +181,67 @@ export default function App() {
           <div style={{ fontSize: 64, marginBottom: 4 }}>♠</div>
           <h1 style={{ fontSize: 42, color: C.gold, margin: "0 0 8px", letterSpacing: 2 }}>BACCARAT</h1>
           <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strateji Sistemi</p>
-          <button style={{ ...S.btnGold, marginBottom: 14 }} onClick={() => { setAuthTab("login"); setShowAuth(true); }}>Giriş Yap</button>
-          <button style={{ ...S.btnOutline, marginBottom: 10 }} onClick={startDemo} disabled={loading}>{loading ? "..." : "Demo Oyna"}</button>
-          <button style={{ ...S.btnGhost, marginTop: 4 }} onClick={() => { setAuthTab("register"); setShowAuth(true); }}>Hesap Oluştur</button>
+          <button style={{ ...S.btnGold, marginBottom: 14 }} onClick={() => setScreen("login")}>Giriş Yap</button>
+          <button style={S.btnOutline} onClick={startDemo} disabled={loading}>{loading ? "..." : "Demo Oyna"}</button>
         </div>
-
-        {showAuth && (
-          <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-            <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: 320 }}>
-              <div style={{ display: "flex", marginBottom: 24, gap: 8 }}>
-                {["login", "register"].map((tab) => (
-                  <button key={tab} onClick={() => { setAuthTab(tab); setFormError(""); }}
-                    style={{ flex: 1, padding: "10px 0", fontSize: 14, fontWeight: "bold", borderRadius: 6, cursor: "pointer", border: "none", backgroundColor: authTab === tab ? C.gold : C.dark, color: authTab === tab ? "#000" : C.gray }}>
-                    {tab === "login" ? "Giriş Yap" : "Kayıt Ol"}
-                  </button>
-                ))}
-              </div>
-              <input style={{ ...S.input, marginBottom: 12 }} placeholder="Kullanıcı adı" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleAuth()} autoComplete="username" />
-              <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Şifre" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleAuth()} autoComplete="current-password" />
-              {formError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
-              <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleAuth} disabled={loading}>{loading ? "..." : authTab === "login" ? "Giriş Yap" : "Kayıt Ol"}</button>
-              <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => { setShowAuth(false); setFormError(""); setForm({ username: "", password: "" }); }}>İptal</button>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  // ═══════════════════════════════════════════
-  // DEMO
-  // ═══════════════════════════════════════════
+  // ═══ LOGIN ══════════════════════════════════════════
+  if (screen === "login") {
+    return (
+      <div style={S.page}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 24, fontSize: 22 }}>Giriş Yap</h2>
+            <input style={{ ...S.input, marginBottom: 12 }} placeholder="Kullanıcı adı" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="username" />
+            <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Şifre" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="current-password" />
+            {formError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
+            <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleLogin} disabled={loading}>{loading ? "..." : "Giriş Yap"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => setScreen("landing")}>← Geri</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ BANKROLL ═══════════════════════════════════════
+  if (screen === "bankroll") {
+    const preview = parseFloat(bankrollInput);
+    const unitPreview = preview > 0 ? (preview * 0.005).toFixed(2) : null;
+    return (
+      <div style={S.page}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 4 }}>👤 {user?.username}</div>
+              <h2 style={{ color: C.gold, fontSize: 22, margin: 0 }}>Enter Your Bankroll</h2>
+            </div>
+            <input
+              style={{ ...S.input, marginBottom: 8, fontSize: 22, textAlign: "center" }}
+              type="number"
+              placeholder="0"
+              value={bankrollInput}
+              onChange={(e) => setBankrollInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleBankrollStart()}
+              autoFocus
+            />
+            {unitPreview && (
+              <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>
+                Birim değeri: <span style={{ color: C.gold }}>{unitPreview}</span> (bankroll × 0.5%)
+              </p>
+            )}
+            {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
+            <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleBankrollStart} disabled={loading}>{loading ? "..." : "Oyuna Başla"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Çıkış</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ DEMO ═══════════════════════════════════════════
   if (screen === "demo") {
     const sc = gs?.scoreboard || { B: 0, P: 0, T: 0 };
     return (
@@ -222,11 +249,10 @@ export default function App() {
         <div style={S.header}>
           <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Geri</button>
           <span style={{ color: C.gold, fontWeight: "bold", letterSpacing: 1 }}>DEMO MODU</span>
-          <span style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>{gs?.balance?.toFixed(1) ?? "100.0"}</span>
+          <span style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>{gs?.balance?.toFixed(2) ?? "100.00"}</span>
         </div>
         <div style={S.content}>
           <ScoreboardBlock sc={sc} />
-
           {dealCards && (
             <div style={{ display: "flex", gap: 12, width: "100%" }}>
               {[{ label: "PLAYER", data: dealCards.player, color: C.red }, { label: "BANKER", data: dealCards.banker, color: C.blue }].map(({ label, data, color }) => (
@@ -240,44 +266,35 @@ export default function App() {
               ))}
             </div>
           )}
-
           {lastResult && (
             <div style={{ padding: "6px 24px", borderRadius: 20, fontWeight: "bold", fontSize: 16, backgroundColor: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.dark }}>
               {lastResult === "B" ? "BANKER KAZANDI" : lastResult === "P" ? "PLAYER KAZANDI" : "BERABERE"}
             </div>
           )}
-
           {gs && !gs.gameOver && (
             <div style={S.recBox}>
               {gs.phase === "observation" ? (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>GÖZLEM MODU</div><div style={{ fontSize: 36 }}>⏸</div>{gs.observationLeft > 0 && <div style={{ color: C.gray }}>{gs.observationLeft} el kaldı</div>}</>
               ) : gs.recommendation ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 20 }}>{gs.unit} birim</div></>
+                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 18 }}>{gs.unit} birim{gs.actualBet ? ` (${gs.actualBet})` : ""}</div></>
               ) : (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>BEKLENIYOR</div><div style={{ color: C.gray, fontSize: 18 }}>{gs.message}</div></>
               )}
             </div>
           )}
-
           {gs?.message && !gs.gameOver && (
-            <div style={{ fontSize: 15, fontWeight: "bold", padding: "8px 20px", borderRadius: 8, backgroundColor: C.card, color: gs.message.includes("KAZANÇ") ? C.green : gs.message.includes("KAYIP") ? C.red : C.white }}>
-              {gs.message}
-            </div>
+            <div style={{ fontSize: 15, fontWeight: "bold", padding: "8px 20px", borderRadius: 8, backgroundColor: C.card, color: gs.message.includes("KAZANÇ") ? C.green : gs.message.includes("KAYIP") ? C.red : C.white }}>{gs.message}</div>
           )}
-
           {gs?.gameOver ? (
             <div style={{ textAlign: "center", padding: 20 }}>
               <div style={{ fontSize: 44, fontWeight: "bold", color: C.gold, marginBottom: 8 }}>GAME OVER</div>
-              <div style={{ color: C.white, marginBottom: 24, fontSize: 18 }}>Bakiye: {gs.balance?.toFixed(1)}</div>
+              <div style={{ color: C.white, marginBottom: 24, fontSize: 18 }}>Bakiye: {gs.balance?.toFixed(2)}</div>
               <button style={{ ...S.btnGold, marginBottom: 12 }} onClick={startDemo}>Yeniden Oyna</button>
               <button style={S.btnGhost} onClick={() => setScreen("landing")}>Ana Sayfa</button>
             </div>
           ) : (
-            <button style={{ ...S.btnGold, fontSize: 20, padding: "18px 0", maxWidth: 260 }} onClick={demoDeal} disabled={loading}>
-              {loading ? "..." : "🂠  Kart Çek"}
-            </button>
+            <button style={{ ...S.btnGold, fontSize: 20, padding: "18px 0", maxWidth: 260 }} onClick={demoDeal} disabled={loading}>{loading ? "..." : "🂠  Kart Çek"}</button>
           )}
-
           <HistoryChips history={gs?.history} />
         </div>
         <FlashOverlay />
@@ -285,24 +302,20 @@ export default function App() {
     );
   }
 
-  // ═══════════════════════════════════════════
-  // GAME (authenticated)
-  // ═══════════════════════════════════════════
+  // ═══ GAME (authenticated) ════════════════════════════
   if (screen === "game") {
     const sc = gs?.scoreboard || { B: 0, P: 0, T: 0 };
     const phase = gs?.phase;
-
     return (
       <div style={S.page}>
         <div style={S.header}>
-          <span style={{ color: C.gray, fontSize: 13 }}>👤 {user?.username}</span>
+          <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
           <div style={{ textAlign: "center" }}>
-            <div style={{ color: C.gold, fontWeight: "bold", fontSize: 20 }}>{gs?.balance?.toFixed(1) ?? "100.0"}</div>
-            {gs?.maxWin && gs.maxWin > 100 && <div style={{ color: C.gray, fontSize: 11 }}>max: {gs.maxWin.toFixed(1)}</div>}
+            <div style={{ color: C.gold, fontWeight: "bold", fontSize: 20 }}>{gs?.balance?.toFixed(2) ?? "—"}</div>
+            <div style={{ color: C.gray, fontSize: 11 }}>birim: {gs?.baseUnit?.toFixed(2)}</div>
           </div>
           <button style={S.btnGhost} onClick={handleLogout}>Çıkış</button>
         </div>
-
         <div style={S.content}>
           <ScoreboardBlock sc={sc} />
 
@@ -313,21 +326,25 @@ export default function App() {
               ) : phase === "waiting" ? (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>BAŞLANGIÇ</div><div style={{ color: C.gray, fontSize: 18 }}>{Math.max(0, 3 - (sc.B + sc.P))} sonuç daha girin</div></>
               ) : gs.recommendation ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 6, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 22, fontWeight: "bold" }}>{gs.unit} birim</div></>
+                <>
+                  <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div>
+                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 4, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
+                  <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>{gs.unit} birim</div>
+                  {gs.actualBet && <div style={{ color: C.white, fontSize: 16, marginTop: 4, opacity: 0.8 }}>({gs.actualBet})</div>}
+                </>
               ) : null}
             </div>
           )}
 
           {gs?.message && !gs.gameOver && (
-            <div style={{ fontSize: 14, fontWeight: "bold", padding: "8px 18px", borderRadius: 8, backgroundColor: C.card, color: gs.message.includes("KAZANÇ") ? C.green : gs.message.includes("KAYIP") ? C.red : C.white }}>
-              {gs.message}
-            </div>
+            <div style={{ fontSize: 14, fontWeight: "bold", padding: "8px 18px", borderRadius: 8, backgroundColor: C.card, color: gs.message.includes("KAZANÇ") ? C.green : gs.message.includes("KAYIP") ? C.red : C.white }}>{gs.message}</div>
           )}
 
           {gs?.gameOver ? (
             <div style={{ textAlign: "center", padding: 24, width: "100%" }}>
               <div style={{ fontSize: 48, fontWeight: "bold", color: C.gold, marginBottom: 8 }}>GAME OVER</div>
-              <div style={{ color: C.green, fontSize: 20, marginBottom: 24 }}>Bakiye: {gs.balance?.toFixed(1)} birim</div>
+              <div style={{ color: C.green, fontSize: 20, marginBottom: 8 }}>Bakiye: {gs.balance?.toFixed(2)}</div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>Yeni birim: {gs.balance ? (gs.balance * 0.005).toFixed(2) : "—"}</div>
               <button style={{ ...S.btnGold, marginBottom: 12 }} onClick={resetGame} disabled={loading}>{loading ? "..." : "Yeniden Oyna"}</button>
               <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Çıkış Yap</button>
             </div>
@@ -340,11 +357,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              {lastResult && (
-                <div style={{ color: C.gray, fontSize: 13 }}>
-                  Son girilen: <span style={{ color: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.gray, fontWeight: "bold" }}>{lastResult}</span>
-                </div>
-              )}
+              {lastResult && <div style={{ color: C.gray, fontSize: 13 }}>Son girilen: <span style={{ color: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.gray, fontWeight: "bold" }}>{lastResult}</span></div>}
             </>
           )}
 
