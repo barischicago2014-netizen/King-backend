@@ -395,6 +395,65 @@ app.post("/game/reset", auth, async (req, res) => {
   }
 });
 
+// ===== FINISH (early exit with current balance) =====
+app.post("/game/finish", auth, async (req, res) => {
+  try {
+    const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
+    const finalBalance = fmt(session.balance);
+    await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    return res.json({ message: "Oyun bitirildi", balance: finalBalance });
+  } catch (err) {
+    return res.status(500).json({ message: "Finish başarısız", error: err.message });
+  }
+});
+
+// ===== ADMIN REPORT =====
+app.get("/admin/report", async (req, res) => {
+  const secret = req.headers["x-admin-secret"];
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+  if (secret !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+
+  try {
+    const sessions = await Session.find().sort({ updatedAt: -1 });
+
+    const userMap = {};
+    for (const s of sessions) {
+      const key = s.username || String(s.userId);
+      if (!userMap[key]) {
+        userMap[key] = {
+          username: s.username || "—",
+          sessions: 0,
+          totalHands: 0,
+          lastBalance: 0,
+          lastBankroll: 0,
+          lastActive: null,
+          bestBalance: 0,
+        };
+      }
+      const u = userMap[key];
+      u.sessions++;
+      u.totalHands += s.fullHistory.length;
+      if (!u.lastActive || s.updatedAt > u.lastActive) {
+        u.lastActive = s.updatedAt;
+        u.lastBalance = fmt(s.balance);
+        u.lastBankroll = s.bankroll;
+      }
+      if (s.balance > u.bestBalance) u.bestBalance = fmt(s.balance);
+    }
+
+    const players = Object.values(userMap).map((u) => ({
+      ...u,
+      pnl: fmt(u.lastBalance - u.lastBankroll),
+      lastActive: u.lastActive ? u.lastActive.toISOString().slice(0, 16).replace("T", " ") : "—",
+    }));
+
+    return res.json({ totalPlayers: players.length, totalSessions: sessions.length, players });
+  } catch (err) {
+    return res.status(500).json({ message: "Rapor alınamadı", error: err.message });
+  }
+});
+
 // ===== START =====
 async function startServer() {
   await connectDB();

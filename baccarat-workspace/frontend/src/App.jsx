@@ -130,6 +130,18 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+  async function finishGame() {
+    if (!window.confirm("Oyunu bitirmek istediğine emin misin? Mevcut bakiyenle yeni oyun başlayacak.")) return;
+    setLoading(true);
+    try {
+      const res = await api.post("/game/finish");
+      const newBankroll = res.data.balance;
+      const startRes = await api.post("/game/reset", { bankroll: newBankroll });
+      setGs(startRes.data);
+      setLastResult(null);
+    } finally { setLoading(false); }
+  }
+
   async function resetGame() {
     // pass current balance as new bankroll (accumulate across games)
     const newBankroll = gs?.balance || gs?.bankroll || 100;
@@ -350,14 +362,17 @@ export default function App() {
             </div>
           ) : (
             <>
-              <div style={{ display: "flex", gap: 12, width: "100%", justifyContent: "center" }}>
+              <div style={{ display: "flex", gap: 14, width: "100%", justifyContent: "center" }}>
                 {[{ l: "B", sub: "BANKER", color: C.blue }, { l: "P", sub: "PLAYER", color: C.red }, { l: "T", sub: "TIE", color: C.dark }].map(({ l, sub, color }) => (
-                  <button key={l} onClick={() => addResult(l)} disabled={loading} style={{ flex: 1, maxWidth: 110, height: 90, fontSize: 28, fontWeight: "bold", backgroundColor: color, color: C.white, border: lastResult === l ? `3px solid ${C.gold}` : "none", borderRadius: 12, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
-                    {l}<span style={{ fontSize: 10, fontWeight: "normal", opacity: 0.8 }}>{sub}</span>
+                  <button key={l} onClick={() => addResult(l)} disabled={loading} style={{ flex: 1, maxWidth: 120, height: 100, fontSize: 32, fontWeight: "bold", backgroundColor: color, color: C.white, border: lastResult === l ? `3px solid ${C.gold}` : "none", borderRadius: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, WebkitTapHighlightColor: "transparent" }}>
+                    {l}<span style={{ fontSize: 11, fontWeight: "normal", opacity: 0.8 }}>{sub}</span>
                   </button>
                 ))}
               </div>
               {lastResult && <div style={{ color: C.gray, fontSize: 13 }}>Son girilen: <span style={{ color: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.gray, fontWeight: "bold" }}>{lastResult}</span></div>}
+              <button onClick={finishGame} disabled={loading} style={{ marginTop: 8, padding: "10px 28px", fontSize: 13, backgroundColor: "transparent", color: "#ff8844", border: "1px solid #ff8844", borderRadius: 8, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
+                Oyunu Bitir
+              </button>
             </>
           )}
 
