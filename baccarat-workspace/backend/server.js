@@ -46,7 +46,14 @@ function getNextMove(history) {
     return { nextMove: "B", suggestedUnit: 0.5, confidence: 0.5 };
   }
 
-  const lastMoves = history.slice(-10).map((h) => h.result);
+  const allMoves = history.slice(-10).map((h) => h.result);
+  // T (tie) sonuçlarını strateji hesabından çıkar
+  const lastMoves = allMoves.filter((m) => m === "B" || m === "P");
+
+  if (lastMoves.length === 0) {
+    return { nextMove: "B", suggestedUnit: 0.5, confidence: 0.5 };
+  }
+
   let streak = 1;
 
   for (let i = lastMoves.length - 1; i > 0; i--) {
@@ -182,13 +189,8 @@ app.post("/add-result", async (req, res) => {
 });
 
 // ===== HISTORY =====
-app.get("/history", async (req, res) => {
-  try {
-    const games = await Game.find().sort({ createdAt: -1 }).limit(200);
-    return res.json(games);
-  } catch (err) {
-    return res.status(500).json({ message: "History fetch failed", error: err.message });
-  }
+app.get("/history", (req, res) => {
+  return res.json(session.history.slice().reverse());
 });
 
 // ===== START =====
