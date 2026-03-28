@@ -74,7 +74,8 @@ function getLeader(bpHistory) {
 }
 
 function applyBarrier(balance, maxWin) {
-  for (const barrier of BARRIERS) {
+  // En küçük barajdan başla, balance'ın hemen üstündeki barajı bul
+  for (const barrier of [...BARRIERS].reverse()) {
     if (balance <= barrier && maxWin > barrier) return barrier;
   }
   return maxWin;
@@ -359,7 +360,7 @@ app.post("/game/result", auth, async (req, res) => {
 app.post("/game/reset", auth, async (req, res) => {
   try {
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const session = await Session.create({ userId: req.user.id });
+    const session = await Session.create({ userId: req.user.id, username: req.user.username });
     return res.json({ message: "Oyun sıfırlandı", balance: session.balance });
   } catch (err) {
     return res.status(500).json({ message: "Reset başarısız", error: err.message });
