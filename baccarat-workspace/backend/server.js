@@ -77,14 +77,6 @@ function getLeader(bpHistory) {
   return b >= p ? "B" : "P";
 }
 
-function applyBarrier(balance, maxWin, bankroll) {
-  // barriers scale with bankroll, iterate from lowest to find closest barrier above balance
-  const barriers = [...BARRIER_PCTS].reverse().map((p) => bankroll * p);
-  for (const barrier of barriers) {
-    if (balance <= barrier && maxWin > barrier) return barrier;
-  }
-  return maxWin;
-}
 
 function getScoreboard(history) {
   return {
@@ -214,7 +206,6 @@ function processResult(result, s) {
     };
   } else {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
-    s.maxWin = applyBarrier(s.balance, s.maxWin, s.bankroll);
     applyLossLevel(s);
 
     const msg = `KAYIP -${s.currentUnit} birim (-${fmt(s.currentUnit * s.baseUnit)})`;
