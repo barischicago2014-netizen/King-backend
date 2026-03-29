@@ -106,10 +106,11 @@ function getLossThreshold(initialBankroll, lossLevel) {
 function applyLossLevel(s) {
   const threshold = getLossThreshold(s.bankroll, s.lossLevel);
   if (s.balance < threshold) {
-    s.targetMax = fmt(s.balance + s.baseUnit);
     s.lossLevel = Math.min(s.lossLevel + 1, 7);
+    s.targetMax = fmt(threshold); // baraj değeri yeni hedef olur
   } else {
     s.lossLevel = Math.max(0, s.lossLevel - 1);
+    // targetMax değişmez — sadece aşağı yönlü ratchet
   }
 }
 
@@ -168,7 +169,7 @@ function processResult(result, s) {
   if (s.phase === "observation") {
     s.observationCount++;
     if (s.observationCount >= 3) {
-      const recoveryUnits = Math.max(1, Math.ceil((s.maxWin + s.baseUnit - s.balance) / s.baseUnit));
+      const recoveryUnits = Math.max(1, Math.ceil((s.targetMax - s.balance) / s.baseUnit));
       s.phase = "active";
       s.currentSuggestion = leader;
       s.currentUnit = recoveryUnits;
@@ -207,7 +208,7 @@ function processResult(result, s) {
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    applyLossLevel(s);
+    applyLossLevel(s); // lossLevel azaltır, barrier geçildiyse targetMax değişmez
     const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses = 0;
     s.lossStep = 0;
@@ -236,7 +237,15 @@ function processResult(result, s) {
   } else {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     s.maxWin = applyBarrier(s.balance, s.maxWin, s.bankroll);
-    applyLossLevel(s);
+
+    // Peak protection: maxWin zirveye ulaştıysa targetMax = maxWin + 1 birim
+    if (s.maxWin > s.bankroll) {
+      const peakTarget = fmt(s.maxWin + s.baseUnit);
+      if (peakTarget < s.targetMax) s.targetMax = peakTarget;
+    }
+
+    applyLossLevel(s); // Baraj kırıldıysa targetMax = baraj değerine düşer
+
     const msg = `KAYIP -${s.currentUnit} birim (-${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses++;
 
@@ -254,14 +263,10 @@ function processResult(result, s) {
       };
     }
 
-    s.lossStep = (s.lossStep + 1) % 2;
-    if (s.lossStep === 1) {
-      s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
-      s.currentUnit = 2;
-    } else {
-      s.currentSuggestion = leader;
-      s.currentUnit = 1;
-    }
+    // Recovery bet: hedefe tek hamlede ulaşacak birim sayısı
+    const recoveryUnits = Math.max(1, Math.ceil((s.targetMax - s.balance) / s.baseUnit));
+    s.currentSuggestion = leader;
+    s.currentUnit = recoveryUnits;
 
     return {
       win: false, recommendation: s.currentSuggestion, unit: s.currentUnit,
