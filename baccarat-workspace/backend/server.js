@@ -133,6 +133,12 @@ function processResult(result, s) {
     s.targetMax = fmt(s.bankroll + 3 * s.baseUnit);
   }
 
+  // Migrate any old "observation" sessions — resume as active
+  if (s.phase === "observation") {
+    s.phase = "active";
+    s.observationCount = 0;
+  }
+
   // Waiting for first 3 B/P results
   if (s.bpHistory.length < 3) {
     return {
@@ -148,49 +154,18 @@ function processResult(result, s) {
 
   // T: no balance change
   if (r === "T") {
-    if (!s.currentSuggestion && s.phase !== "observation") {
+    if (!s.currentSuggestion) {
       s.currentSuggestion = leader;
       s.currentUnit = 1;
       s.phase = "active";
     }
     return {
-      recommendation: s.phase === "observation" ? null : s.currentSuggestion,
-      unit: s.phase === "observation" ? null : s.currentUnit,
-      actualBet: s.phase === "observation" ? null : fmt(s.currentUnit * s.baseUnit),
+      recommendation: s.currentSuggestion,
+      unit: s.currentUnit,
+      actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null,
       balance: fmt(s.balance), scoreboard, history,
       message: "TIE — Değişiklik yok",
       phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll,
-      observationLeft: s.phase === "observation" ? Math.max(0, 3 - s.observationCount) : 0,
-      lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
-    };
-  }
-
-  // Observation mode
-  if (s.phase === "observation") {
-    s.observationCount++;
-    if (s.observationCount >= 3) {
-      const recoveryUnits = Math.max(1, Math.ceil((s.targetMax - s.balance) / s.baseUnit));
-      s.phase = "active";
-      s.currentSuggestion = leader;
-      s.currentUnit = recoveryUnits;
-      s.consecutiveLosses = 0;
-      s.lossStep = 0;
-      s.observationCount = 0;
-      return {
-        recommendation: s.currentSuggestion, unit: s.currentUnit,
-        actualBet: fmt(s.currentUnit * s.baseUnit),
-        balance: fmt(s.balance), scoreboard, history,
-        message: `Sistem devreye girdi — ${s.currentSuggestion} × ${s.currentUnit} birim (${fmt(s.currentUnit * s.baseUnit)})`,
-        phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
-        lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
-      };
-    }
-    return {
-      recommendation: null, unit: null, actualBet: null,
-      balance: fmt(s.balance), scoreboard, history,
-      message: `Gözlem: ${3 - s.observationCount} el kaldı`,
-      phase: "observation", observationLeft: 3 - s.observationCount,
-      baseUnit: s.baseUnit, bankroll: s.bankroll,
       lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   }
@@ -208,13 +183,14 @@ function processResult(result, s) {
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    applyLossLevel(s); // lossLevel azaltır, barrier geçildiyse targetMax değişmez
+    applyLossLevel(s);
     const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses = 0;
     s.lossStep = 0;
     s.currentSuggestion = leader;
-    // Kazanç sonrası: recovery bet — hedefe tek hamlede ulaşacak birim
-    s.currentUnit = Math.max(1, Math.ceil((s.targetMax - s.balance) / s.baseUnit));
+    // Her kazançta: maxKazanç + 1 birime ulaşacak bahis, targetMax ile sınırlı
+    const recoveryTarget = Math.min(s.maxWin + s.baseUnit, s.targetMax);
+    s.currentUnit = Math.max(1, Math.ceil((recoveryTarget - s.balance) / s.baseUnit));
 
     if (s.balance >= s.targetMax) {
       s.phase = "gameover";
@@ -232,37 +208,16 @@ function processResult(result, s) {
       win: true, recommendation: s.currentSuggestion, unit: s.currentUnit,
       actualBet: fmt(s.currentUnit * s.baseUnit),
       balance: fmt(s.balance), scoreboard, history, message: msg,
-      phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
+      phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll,
       lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   } else {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     s.maxWin = applyBarrier(s.balance, s.maxWin, s.bankroll);
-
-    // Peak protection: maxWin bankroll'u aştıysa targetMax = maxWin + 1 birim
-    // Unconditional — stale/bozuk targetMax değerlerini de düzeltir
-    if (s.maxWin > s.bankroll) {
-      s.targetMax = fmt(Math.min(s.maxWin + s.baseUnit, s.bankroll + 3 * s.baseUnit));
-    }
-
-    applyLossLevel(s); // Baraj kırıldıysa targetMax = baraj değerine düşer
+    applyLossLevel(s);
 
     const msg = `KAYIP -${s.currentUnit} birim (-${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses++;
-
-    if (s.consecutiveLosses >= 3) {
-      s.phase = "observation";
-      s.observationCount = 0;
-      s.currentSuggestion = null;
-      s.currentUnit = null;
-      return {
-        win: false, recommendation: null, unit: null, actualBet: null,
-        balance: fmt(s.balance), scoreboard, history,
-        message: "3 üst üste kayıp — 3 el gözlem modu",
-        phase: "observation", observationLeft: 3, baseUnit: s.baseUnit, bankroll: s.bankroll,
-        lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
-      };
-    }
 
     // Kayıp sırasında: 1→2→1→1... pattern (lossStep)
     s.lossStep = (s.lossStep + 1) % 2;
@@ -278,7 +233,7 @@ function processResult(result, s) {
       win: false, recommendation: s.currentSuggestion, unit: s.currentUnit,
       actualBet: fmt(s.currentUnit * s.baseUnit),
       balance: fmt(s.balance), scoreboard, history, message: msg,
-      phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
+      phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll,
       lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   }

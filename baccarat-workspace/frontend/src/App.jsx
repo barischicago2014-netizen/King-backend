@@ -288,9 +288,7 @@ export default function App() {
           )}
           {gs && !gs.gameOver && (
             <div style={S.recBox}>
-              {gs.phase === "observation" ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>GÖZLEM MODU</div><div style={{ fontSize: 36 }}>⏸</div>{gs.observationLeft > 0 && <div style={{ color: C.gray }}>{gs.observationLeft} el kaldı</div>}</>
-              ) : gs.recommendation ? (
+              {gs.recommendation ? (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 18 }}>{gs.unit} birim{gs.actualBet ? ` (${gs.actualBet})` : ""}</div></>
               ) : (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>BEKLENIYOR</div><div style={{ color: C.gray, fontSize: 18 }}>{gs.message}</div></>
@@ -339,9 +337,7 @@ export default function App() {
 
           {gs && !gs.gameOver && (
             <div style={S.recBox}>
-              {phase === "observation" ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>GÖZLEM MODU</div><div style={{ fontSize: 34 }}>⏸</div>{gs.observationLeft > 0 && <div style={{ color: C.gray, marginTop: 6 }}>{gs.observationLeft} el kaldı — sonuçları girmeye devam edin</div>}</>
-              ) : phase === "waiting" ? (
+              {phase === "waiting" ? (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>BAŞLANGIÇ</div><div style={{ color: C.gray, fontSize: 18 }}>{Math.max(0, 3 - (sc.B + sc.P))} sonuç daha girin</div></>
               ) : gs.recommendation ? (
                 <>
