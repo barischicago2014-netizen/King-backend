@@ -239,10 +239,10 @@ function processResult(result, s) {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     s.maxWin = applyBarrier(s.balance, s.maxWin, s.bankroll);
 
-    // Peak protection: maxWin zirveye ulaştıysa targetMax = maxWin + 1 birim
+    // Peak protection: maxWin bankroll'u aştıysa targetMax = maxWin + 1 birim
+    // Unconditional — stale/bozuk targetMax değerlerini de düzeltir
     if (s.maxWin > s.bankroll) {
-      const peakTarget = fmt(s.maxWin + s.baseUnit);
-      if (peakTarget < s.targetMax) s.targetMax = peakTarget;
+      s.targetMax = fmt(Math.min(s.maxWin + s.baseUnit, s.bankroll + 3 * s.baseUnit));
     }
 
     applyLossLevel(s); // Baraj kırıldıysa targetMax = baraj değerine düşer
