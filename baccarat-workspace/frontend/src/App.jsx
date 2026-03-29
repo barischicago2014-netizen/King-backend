@@ -38,6 +38,8 @@ export default function App() {
   const [dealCards, setDealCards] = useState(null);
   const [lastResult, setLastResult] = useState(null);
   const [flash, setFlash] = useState(null);
+  const [aiData, setAiData] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -116,6 +118,16 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+  async function triggerAi() {
+    setAiLoading(true);
+    setAiData(null);
+    try {
+      const res = await api.post("/game/analysis");
+      setAiData(res.data.ok ? res.data : null);
+    } catch { setAiData(null); }
+    finally { setAiLoading(false); }
+  }
+
   async function addResult(result) {
     if (loading || gs?.gameOver) return;
     setLoading(true);
@@ -123,8 +135,15 @@ export default function App() {
       const res = await api.post("/game/result", { result });
       setLastResult(result);
       setGs((prev) => ({ ...prev, ...res.data }));
-      if (res.data.win === true) showFlash(`+${res.data.actualBet}`, C.green);
-      else if (res.data.win === false) showFlash(`-${res.data.actualBet}`, C.red);
+      if (res.data.win === true) {
+        showFlash(`+${res.data.actualBet}`, C.green);
+        setAiData(null);
+      } else if (res.data.win === false) {
+        showFlash(`-${res.data.actualBet}`, C.red);
+        const b = res.data.balance ?? 0;
+        const br = res.data.bankroll ?? gs?.bankroll ?? 0;
+        if (br > 0 && b < br * 0.93) triggerAi();
+      }
     } catch (err) {
       if (err.response?.status === 404) setScreen("bankroll");
     } finally { setLoading(false); }
@@ -354,6 +373,23 @@ export default function App() {
 
           {gs?.message && !gs.gameOver && (
             <div style={{ fontSize: 14, fontWeight: "bold", padding: "8px 18px", borderRadius: 8, backgroundColor: C.card, color: gs.message.includes("KAZANÇ") ? C.green : gs.message.includes("KAYIP") ? C.red : C.white }}>{gs.message}</div>
+          )}
+
+          {(aiLoading || aiData) && !gs?.gameOver && (
+            <div style={{ width: "100%", padding: "10px 16px", borderRadius: 10, backgroundColor: "#1a1a2e", border: "1px solid #6644aa", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 16 }}>🤖</span>
+              {aiLoading ? (
+                <span style={{ color: "#aaaadd", fontSize: 13 }}>AI analiz yapıyor...</span>
+              ) : aiData ? (
+                <span style={{ fontSize: 13 }}>
+                  <span style={{ color: "#aaaadd" }}>AI: </span>
+                  <span style={{ color: aiData.side === "B" ? C.blue : aiData.side === "P" ? C.red : C.gray, fontWeight: "bold" }}>
+                    {aiData.side === "B" ? "BANKER" : aiData.side === "P" ? "PLAYER" : "NÖTR"}
+                  </span>
+                  {aiData.reason && <span style={{ color: C.gray }}> — {aiData.reason}</span>}
+                </span>
+              ) : null}
+            </div>
           )}
 
           {gs?.gameOver ? (

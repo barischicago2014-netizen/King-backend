@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const Anthropic = require("@anthropic-ai/sdk");
 require("dotenv").config();
 
 const app = express();
@@ -471,6 +472,39 @@ app.get("/admin/report", async (req, res) => {
     return res.json({ totalPlayers: players.length, totalSessions: sessions.length, players });
   } catch (err) {
     return res.status(500).json({ message: "Rapor alınamadı", error: err.message });
+  }
+});
+
+// ===== AI ANALYSIS =====
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
+
+app.post("/game/analysis", auth, async (req, res) => {
+  try {
+    if (!anthropic) return res.json({ ok: false, side: null, reason: "AI devre dışı" });
+    const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
+
+    const history = session.bpHistory.slice(-20);
+    if (history.length < 5) return res.json({ ok: false, side: null, reason: "Yeterli veri yok" });
+
+    const prompt = `Baccarat el analizi. Son ${history.length} sonuç (en yeni sonda): ${history.join(",")}
+Bakiye: ${fmt(session.balance)}, Bankroll: ${session.bankroll}, Risk seviyesi: L${session.lossLevel}
+Mevcut öneri: ${session.currentSuggestion || "yok"}
+
+Sadece JSON döndür: {"side":"B"|"P"|"NEUTRAL","reason":"max 8 kelime Türkçe"}`;
+
+    const msg = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 80,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const parsed = JSON.parse(msg.content[0].text.trim());
+    return res.json({ ok: true, side: parsed.side, reason: parsed.reason });
+  } catch (err) {
+    return res.json({ ok: false, side: null, reason: null });
   }
 });
 
