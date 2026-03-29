@@ -213,7 +213,8 @@ function processResult(result, s) {
     s.consecutiveLosses = 0;
     s.lossStep = 0;
     s.currentSuggestion = leader;
-    s.currentUnit = 1;
+    // Kazanç sonrası: recovery bet — hedefe tek hamlede ulaşacak birim
+    s.currentUnit = Math.max(1, Math.ceil((s.targetMax - s.balance) / s.baseUnit));
 
     if (s.balance >= s.targetMax) {
       s.phase = "gameover";
@@ -263,10 +264,15 @@ function processResult(result, s) {
       };
     }
 
-    // Recovery bet: hedefe tek hamlede ulaşacak birim sayısı
-    const recoveryUnits = Math.max(1, Math.ceil((s.targetMax - s.balance) / s.baseUnit));
-    s.currentSuggestion = leader;
-    s.currentUnit = recoveryUnits;
+    // Kayıp sırasında: 1→2→1→1... pattern (lossStep)
+    s.lossStep = (s.lossStep + 1) % 2;
+    if (s.lossStep === 1) {
+      s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
+      s.currentUnit = 2;
+    } else {
+      s.currentSuggestion = leader;
+      s.currentUnit = 1;
+    }
 
     return {
       win: false, recommendation: s.currentSuggestion, unit: s.currentUnit,
