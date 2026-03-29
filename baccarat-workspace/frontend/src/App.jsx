@@ -256,6 +256,7 @@ export default function App() {
   // ═══ DEMO ═══════════════════════════════════════════
   if (screen === "demo") {
     const sc = gs?.scoreboard || { B: 0, P: 0, T: 0 };
+    const demoTarget = gs?.targetMax ?? (gs?.bankroll != null ? gs.bankroll + 3 * (gs.baseUnit ?? 0.5) : 101.5);
     return (
       <div style={S.page}>
         <div style={S.header}>
@@ -263,7 +264,7 @@ export default function App() {
           <span style={{ color: C.gold, fontWeight: "bold", letterSpacing: 1 }}>DEMO MODU</span>
           <div style={{ textAlign: "right" }}>
             <div style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>{gs?.balance?.toFixed(2) ?? "100.00"}</div>
-            {gs?.targetMax != null && <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{gs.targetMax.toFixed(2)}</span>{gs?.lossLevel > 0 ? <span style={{ color: "#ff8844" }}> L{gs.lossLevel}</span> : null}</div>}
+            <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{demoTarget.toFixed(2)}</span>{gs?.lossLevel > 0 ? <span style={{ color: "#ff8844" }}> L{gs.lossLevel}</span> : null}</div>
           </div>
         </div>
         <div style={S.content}>
@@ -319,6 +320,7 @@ export default function App() {
   if (screen === "game") {
     const sc = gs?.scoreboard || { B: 0, P: 0, T: 0 };
     const phase = gs?.phase;
+    const gameTarget = gs?.targetMax ?? (gs?.bankroll != null && gs?.baseUnit != null ? gs.bankroll + 3 * gs.baseUnit : null);
     return (
       <div style={S.page}>
         <div style={S.header}>
@@ -328,7 +330,7 @@ export default function App() {
             <div style={{ color: C.gray, fontSize: 11 }}>birim: {gs?.baseUnit?.toFixed(2)}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{gs?.targetMax?.toFixed(2) ?? "—"}</span></div>
+            <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{gameTarget != null ? gameTarget.toFixed(2) : "—"}</span></div>
             {gs?.lossLevel > 0 && <div style={{ color: "#ff8844", fontSize: 10 }}>Risk: L{gs.lossLevel}</div>}
           </div>
         </div>
