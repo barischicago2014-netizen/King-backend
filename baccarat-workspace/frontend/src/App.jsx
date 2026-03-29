@@ -261,7 +261,10 @@ export default function App() {
         <div style={S.header}>
           <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Geri</button>
           <span style={{ color: C.gold, fontWeight: "bold", letterSpacing: 1 }}>DEMO MODU</span>
-          <span style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>{gs?.balance?.toFixed(2) ?? "100.00"}</span>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>{gs?.balance?.toFixed(2) ?? "100.00"}</div>
+            {gs?.targetMax != null && <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{gs.targetMax.toFixed(2)}</span>{gs?.lossLevel > 0 ? <span style={{ color: "#ff8844" }}> L{gs.lossLevel}</span> : null}</div>}
+          </div>
         </div>
         <div style={S.content}>
           <ScoreboardBlock sc={sc} />
@@ -326,7 +329,10 @@ export default function App() {
             <div style={{ color: C.gold, fontWeight: "bold", fontSize: 20 }}>{gs?.balance?.toFixed(2) ?? "—"}</div>
             <div style={{ color: C.gray, fontSize: 11 }}>birim: {gs?.baseUnit?.toFixed(2)}</div>
           </div>
-          <button style={S.btnGhost} onClick={handleLogout}>Çıkış</button>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{gs?.targetMax?.toFixed(2) ?? "—"}</span></div>
+            {gs?.lossLevel > 0 && <div style={{ color: "#ff8844", fontSize: 10 }}>Risk: L{gs.lossLevel}</div>}
+          </div>
         </div>
         <div style={S.content}>
           <ScoreboardBlock sc={sc} />

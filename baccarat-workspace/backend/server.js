@@ -44,6 +44,8 @@ const SessionSchema = new mongoose.Schema({
   bpHistory: [{ type: String }],
   consecutiveLosses: { type: Number, default: 0 },
   lossStep: { type: Number, default: 0 },
+  lossLevel: { type: Number, default: 0 },
+  targetMax: { type: Number, default: null },
   phase: { type: String, default: "waiting" },
   observationCount: { type: Number, default: 0 },
   currentSuggestion: { type: String, default: null },
@@ -95,6 +97,22 @@ function fmt(n) {
   return Number(n.toFixed(2));
 }
 
+function getLossThreshold(initialBankroll, lossLevel) {
+  const percentages = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+  const index = Math.min(lossLevel, percentages.length - 1);
+  return initialBankroll * percentages[index];
+}
+
+function applyLossLevel(s) {
+  const threshold = getLossThreshold(s.bankroll, s.lossLevel);
+  if (s.balance < threshold) {
+    s.targetMax = fmt(s.balance + s.baseUnit);
+    s.lossLevel = Math.min(s.lossLevel + 1, 7);
+  } else {
+    s.lossLevel = Math.max(0, s.lossLevel - 1);
+  }
+}
+
 function processResult(result, s) {
   const r = String(result).toUpperCase().trim();
   if (!["B", "P", "T"].includes(r)) throw new Error("Geçersiz sonuç");
@@ -109,7 +127,10 @@ function processResult(result, s) {
 
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
-  const GAME_OVER_TARGET = s.bankroll + 3 * s.baseUnit;
+  // Initialize targetMax on first run
+  if (s.targetMax === null || s.targetMax === undefined) {
+    s.targetMax = fmt(s.bankroll + 3 * s.baseUnit);
+  }
 
   // Waiting for first 3 B/P results
   if (s.bpHistory.length < 3) {
@@ -118,6 +139,7 @@ function processResult(result, s) {
       balance: fmt(s.balance), scoreboard, history,
       message: `${3 - s.bpHistory.length} sonuç daha girin`,
       phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll,
+      lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   }
 
@@ -138,6 +160,7 @@ function processResult(result, s) {
       message: "TIE — Değişiklik yok",
       phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll,
       observationLeft: s.phase === "observation" ? Math.max(0, 3 - s.observationCount) : 0,
+      lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   }
 
@@ -158,6 +181,7 @@ function processResult(result, s) {
         balance: fmt(s.balance), scoreboard, history,
         message: `Sistem devreye girdi — ${s.currentSuggestion} × ${s.currentUnit} birim (${fmt(s.currentUnit * s.baseUnit)})`,
         phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
+        lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
       };
     }
     return {
@@ -166,6 +190,7 @@ function processResult(result, s) {
       message: `Gözlem: ${3 - s.observationCount} el kaldı`,
       phase: "observation", observationLeft: 3 - s.observationCount,
       baseUnit: s.baseUnit, bankroll: s.bankroll,
+      lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   }
 
@@ -182,20 +207,22 @@ function processResult(result, s) {
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
+    applyLossLevel(s);
     const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses = 0;
     s.lossStep = 0;
     s.currentSuggestion = leader;
     s.currentUnit = 1;
 
-    if (s.balance >= GAME_OVER_TARGET) {
+    if (s.balance >= s.targetMax) {
       s.phase = "gameover";
       return {
         gameOver: true, win: true,
         recommendation: null, unit: null, actualBet: null,
         balance: fmt(s.balance), scoreboard, history,
-        message: `GAME OVER! +3 birim hedefine ulaşıldı! (+${fmt(3 * s.baseUnit)})`,
+        message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(s.targetMax)})`,
         phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll,
+        lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
       };
     }
 
@@ -204,10 +231,12 @@ function processResult(result, s) {
       actualBet: fmt(s.currentUnit * s.baseUnit),
       balance: fmt(s.balance), scoreboard, history, message: msg,
       phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
+      lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   } else {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     s.maxWin = applyBarrier(s.balance, s.maxWin, s.bankroll);
+    applyLossLevel(s);
     const msg = `KAYIP -${s.currentUnit} birim (-${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses++;
 
@@ -221,6 +250,7 @@ function processResult(result, s) {
         balance: fmt(s.balance), scoreboard, history,
         message: "3 üst üste kayıp — 3 el gözlem modu",
         phase: "observation", observationLeft: 3, baseUnit: s.baseUnit, bankroll: s.bankroll,
+        lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
       };
     }
 
@@ -238,6 +268,7 @@ function processResult(result, s) {
       actualBet: fmt(s.currentUnit * s.baseUnit),
       balance: fmt(s.balance), scoreboard, history, message: msg,
       phase: "active", observationLeft: 0, baseUnit: s.baseUnit, bankroll: s.bankroll,
+      lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
     };
   }
 }
@@ -262,6 +293,7 @@ function newDemoSession() {
     balance: 100, maxWin: 100,
     fullHistory: [], bpHistory: [],
     consecutiveLosses: 0, lossStep: 0,
+    lossLevel: 0, targetMax: null,
     phase: "waiting", observationCount: 0,
     currentSuggestion: null, currentUnit: 1,
   };
@@ -325,13 +357,15 @@ app.post("/game/start", auth, async (req, res) => {
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Geçerli bir bankroll girin" });
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    const targetMax = fmt(bankroll + 3 * baseUnit);
     const session = await Session.create({
       userId: req.user.id, username: req.user.username,
       bankroll, baseUnit, balance: bankroll, maxWin: bankroll,
+      lossLevel: 0, targetMax,
     });
     return res.json({
       balance: session.balance, maxWin: session.maxWin,
-      bankroll, baseUnit,
+      bankroll, baseUnit, lossLevel: 0, targetMax,
       scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null,
       unit: null, actualBet: null, phase: "waiting", history: [],
       message: "3 sonuç girin, sistem başlasın",
@@ -353,6 +387,8 @@ app.get("/game/state", auth, async (req, res) => {
       actualBet: session.currentUnit ? fmt(session.currentUnit * session.baseUnit) : null,
       phase: session.phase, history: session.fullHistory.slice(-20),
       observationLeft: session.phase === "observation" ? Math.max(0, 3 - session.observationCount) : 0,
+      lossLevel: session.lossLevel ?? 0,
+      targetMax: session.targetMax != null ? fmt(session.targetMax) : fmt(session.bankroll + 3 * session.baseUnit),
     });
   } catch (err) {
     return res.status(500).json({ message: "State alınamadı", error: err.message });
@@ -379,13 +415,15 @@ app.post("/game/reset", auth, async (req, res) => {
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Geçerli bir bankroll girin" });
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    const targetMax = fmt(bankroll + 3 * baseUnit);
     const session = await Session.create({
       userId: req.user.id, username: req.user.username,
       bankroll, baseUnit, balance: bankroll, maxWin: bankroll,
+      lossLevel: 0, targetMax,
     });
     return res.json({
       balance: session.balance, maxWin: session.maxWin,
-      bankroll, baseUnit,
+      bankroll, baseUnit, lossLevel: 0, targetMax,
       scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null,
       unit: null, actualBet: null, phase: "waiting", history: [],
       message: "3 sonuç girin, sistem başlasın",
