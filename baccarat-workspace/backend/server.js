@@ -181,9 +181,8 @@ function processResult(result, s) {
     s.consecutiveLosses = 0;
     s.lossStep = 0;
     s.currentSuggestion = leader;
-    // Her kazançta: maxKazanç + 1 birime ulaşacak bahis, targetMax ile sınırlı
-    const recoveryTarget = Math.min(s.maxWin + s.baseUnit, s.targetMax);
-    s.currentUnit = Math.max(1, Math.ceil((recoveryTarget - s.balance) / s.baseUnit));
+    // Her kazançta: maxKazanç + 1 birime ulaşacak bahis
+    s.currentUnit = Math.max(1, Math.ceil((s.maxWin + s.baseUnit - s.balance) / s.baseUnit));
 
     if (s.balance >= s.targetMax) {
       s.phase = "gameover";
