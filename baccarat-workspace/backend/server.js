@@ -175,26 +175,75 @@ function processResult(result, s) {
 
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
+
+    // maxWin güncelle
     if (s.balance > s.maxWin) s.maxWin = s.balance;
+
+    // Baraj seviyesini güncelle (ama targetMax sadece aşağı iner)
     applyLossLevel(s);
+
     const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
+
     s.consecutiveLosses = 0;
     s.lossStep = 0;
     s.currentSuggestion = leader;
-    // Her kazançta: baraj aktifse targetMax, değilse maxWin hedef alınır
-    const effectiveMax = Math.min(s.maxWin, s.targetMax);
-    s.currentUnit = Math.max(1, Math.ceil((effectiveMax + s.baseUnit - s.balance) / s.baseUnit));
 
-    if (s.balance >= s.targetMax) {
-      s.phase = "gameover";
-      return {
-        gameOver: true, win: true,
-        recommendation: null, unit: null, actualBet: null,
-        balance: fmt(s.balance), scoreboard, history,
-        message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(s.targetMax)})`,
-        phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll,
-        lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
-      };
+    // ================================
+    //   KAZANÇ SONRASI HEDEF BELİRLEME
+    // ================================
+
+    let target;
+
+    // Baraj tetiklenmişse → targetMax + 1 birim
+    if (s.lossLevel > 0) {
+      target = s.targetMax + s.baseUnit;
+    }
+    // Baraj yoksa → maxBankroll + 1 birim
+    else {
+      target = s.maxWin + s.baseUnit;
+    }
+
+    // ================================
+    //   KAZANÇ SONRASI BİRİM HESABI
+    // ================================
+
+    let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
+    if (nextUnit < 1) nextUnit = 1;
+
+    s.currentUnit = nextUnit;
+
+    // ================================
+    //   GAME OVER KONTROLÜ
+    // ================================
+
+    if (s.lossLevel > 0) {
+      // Baraj modunda → targetMax + 3 birim
+      const gameOverTarget = s.targetMax + 3 * s.baseUnit;
+      if (s.balance >= gameOverTarget) {
+        s.phase = "gameover";
+        return {
+          gameOver: true, win: true,
+          recommendation: null, unit: null, actualBet: null,
+          balance: fmt(s.balance), scoreboard, history,
+          message: `GAME OVER! Baraj hedefi ${fmt(gameOverTarget)} aşıldı.`,
+          phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll,
+          lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
+        };
+      }
+    } else {
+      // Normal mod → maxBankroll + 3 birim
+      const gameOverTarget = s.maxWin + 3 * s.baseUnit;
+      if (s.balance >= gameOverTarget) {
+        s.phase = "gameover";
+        return {
+          gameOver: true, win: true,
+          recommendation: null, unit: null, actualBet: null,
+          balance: fmt(s.balance), scoreboard, history,
+          message: `GAME OVER! Hedef ${fmt(gameOverTarget)} aşıldı.`,
+          phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll,
+          lossLevel: s.lossLevel, targetMax: fmt(s.targetMax),
+        };
+      }
     }
 
     return {
