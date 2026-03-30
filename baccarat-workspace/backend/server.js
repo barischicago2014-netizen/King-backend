@@ -103,18 +103,25 @@ function processResult(result, s) {
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    // inBarrier: applyLossLevel çağrısından ÖNCE belirlenmeli
-    // (applyLossLevel lossLevel'ı değiştirebilir, ama targetMax<maxWin karşılaştırması her zaman doğru)
-    const inBarrier = s.targetMax < s.maxWin;
+    // 🔴 ÖNEMLİ: Barajda mıyız? Bunu applyLossLevel'dan ÖNCE kilitliyoruz
+    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
+    // Bu çağrı lossLevel'ı değiştirebilir ama inBarrier artık sabit
     applyLossLevel(s);
+    const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses = 0; s.lossStep = 0; s.currentSuggestion = leader;
-    let target = inBarrier ? s.targetMax + s.baseUnit : s.maxWin + s.baseUnit;
+    // Baraj modundaysak: targetMax + 1 birim, Normal moddaysak: maxWin + 1 birim
+    const baseTarget = inBarrier ? s.targetMax : s.maxWin;
+    let target = baseTarget + s.baseUnit;
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    const gTarget = inBarrier ? s.targetMax + 3 * s.baseUnit : s.maxWin + 3 * s.baseUnit;
-    if (s.balance >= gTarget) { s.phase = "gameover"; return { gameOver: true, win: true, balance: fmt(s.balance), scoreboard, history, message: "GAME OVER!", phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) }; }
-    return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAZANC +" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
+    // +3 birim kâr: referans yine aynı baseTarget
+    const gameOverTarget = baseTarget + 3 * s.baseUnit;
+    if (s.balance >= gameOverTarget) {
+      s.phase = "gameover";
+      return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
+    }
+    return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: msg, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
   } else {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     applyLossLevel(s);
