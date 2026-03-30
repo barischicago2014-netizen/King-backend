@@ -78,8 +78,18 @@ function getLossThreshold(initialBankroll, lossLevel) {
 }
 function applyLossLevel(s) {
   const threshold = getLossThreshold(s.bankroll, s.lossLevel);
-  if (s.balance < threshold) { s.lossLevel = Math.min(s.lossLevel + 1, 7); s.targetMax = fmt(threshold); }
-  else { s.lossLevel = Math.max(0, s.lossLevel - 1); }
+  if (s.balance < threshold) {
+    // Baraj tetikleniyor → targetMax baraj seviyesine çekilir
+    s.lossLevel = Math.min(s.lossLevel + 1, 7);
+    s.targetMax = fmt(threshold);
+  } else {
+    // Barajdan çıkıyoruz → lossLevel düşer
+    s.lossLevel = Math.max(0, s.lossLevel - 1);
+    // 🔥 KRİTİK: Barajdan tamamen çıkınca targetMax null olur (normal mod)
+    if (s.lossLevel === 0) {
+      s.targetMax = null;
+    }
+  }
 }
 function processResult(result, s) {
   const r = String(result).toUpperCase().trim();
@@ -90,13 +100,13 @@ function processResult(result, s) {
   s.updatedAt = new Date();
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
-  if (s.targetMax === null || s.targetMax === undefined) s.targetMax = fmt(s.bankroll + 3 * s.baseUnit);
+  // targetMax: null = normal mod (baraj yok), sayı = aktif baraj seviyesi
   if (s.phase === "observation") { s.phase = "active"; s.observationCount = 0; }
-  if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
+  if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   const leader = getLeader(s.bpHistory);
   if (r === "T") {
     if (!s.currentSuggestion) { s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; }
-    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: "TIE", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
+    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: "TIE", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   if (!s.currentSuggestion) { s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0; }
   const win = r === s.currentSuggestion;
@@ -120,9 +130,9 @@ function processResult(result, s) {
     const gameOverTarget = baseTarget + 3 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
-      return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
+      return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
     }
-    return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: msg, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
+    return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: msg, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   } else {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     applyLossLevel(s);
@@ -130,7 +140,7 @@ function processResult(result, s) {
     s.lossStep = (s.lossStep + 1) % 2;
     if (s.lossStep === 1) { s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B"; s.currentUnit = 2; }
     else { s.currentSuggestion = leader; s.currentUnit = 1; }
-    return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAYIP -" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
+    return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAYIP -" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
 
