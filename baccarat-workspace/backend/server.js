@@ -103,13 +103,16 @@ function processResult(result, s) {
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
+    // inBarrier: applyLossLevel çağrısından ÖNCE belirlenmeli
+    // (applyLossLevel lossLevel'ı değiştirebilir, ama targetMax<maxWin karşılaştırması her zaman doğru)
+    const inBarrier = s.targetMax < s.maxWin;
     applyLossLevel(s);
     s.consecutiveLosses = 0; s.lossStep = 0; s.currentSuggestion = leader;
-    let target = s.lossLevel > 0 ? s.targetMax + s.baseUnit : s.maxWin + s.baseUnit;
+    let target = inBarrier ? s.targetMax + s.baseUnit : s.maxWin + s.baseUnit;
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    const gTarget = s.lossLevel > 0 ? s.targetMax + 3 * s.baseUnit : s.maxWin + 3 * s.baseUnit;
+    const gTarget = inBarrier ? s.targetMax + 3 * s.baseUnit : s.maxWin + 3 * s.baseUnit;
     if (s.balance >= gTarget) { s.phase = "gameover"; return { gameOver: true, win: true, balance: fmt(s.balance), scoreboard, history, message: "GAME OVER!", phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) }; }
     return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAZANC +" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: fmt(s.targetMax) };
   } else {
