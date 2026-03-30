@@ -126,6 +126,7 @@ function processResult(result, s) {
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
+    console.log(`[WIN] balance=${s.balance} maxWin=${s.maxWin} targetMax=${s.targetMax} inBarrier=${inBarrier} baseTarget=${baseTarget} target=${target} nextUnit=${nextUnit}`);
     // +3 birim kâr: referans yine aynı baseTarget
     const gameOverTarget = baseTarget + 3 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
