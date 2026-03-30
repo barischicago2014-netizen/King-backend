@@ -104,7 +104,8 @@ function processResult(result, s) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
     // 🔴 ÖNEMLİ: Barajda mıyız? Bunu applyLossLevel'dan ÖNCE kilitliyoruz
-    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
+    // Koşul: targetMax belirliyse VE maxWin'den küçükse VE balance hâlâ targetMax'ın altındaysa
+    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin && s.balance < s.targetMax;
     // Bu çağrı lossLevel'ı değiştirebilir ama inBarrier artık sabit
     applyLossLevel(s);
     const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
