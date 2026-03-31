@@ -77,18 +77,19 @@ function getLossThreshold(initialBankroll, lossLevel) {
   return initialBankroll * percentages[Math.min(lossLevel, percentages.length - 1)];
 }
 function applyLossLevel(s) {
-  const threshold = getLossThreshold(s.bankroll, s.lossLevel);
-  if (s.balance < threshold) {
-    // Baraj tetikleniyor → targetMax baraj seviyesine çekilir
-    s.lossLevel = Math.min(s.lossLevel + 1, 7);
-    s.targetMax = fmt(threshold);
+  // Baraj seviyesini balance'ın mevcut konumuna göre hesapla (artımlı değil, pozisyona dayalı)
+  const pcts = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+  let level = 0;
+  for (let i = 0; i < pcts.length; i++) {
+    if (s.balance < s.bankroll * pcts[i]) level = i + 1;
+    else break;
+  }
+  s.lossLevel = Math.min(level, 7);
+  if (s.lossLevel > 0) {
+    // Aktif baraj: geçilen ilk eşik targetMax olur
+    s.targetMax = fmt(s.bankroll * pcts[s.lossLevel - 1]);
   } else {
-    // Barajdan çıkıyoruz → lossLevel düşer
-    s.lossLevel = Math.max(0, s.lossLevel - 1);
-    // 🔥 KRİTİK: Barajdan tamamen çıkınca targetMax null olur (normal mod)
-    if (s.lossLevel === 0) {
-      s.targetMax = null;
-    }
+    s.targetMax = null;
   }
 }
 function processResult(result, s) {
@@ -100,8 +101,15 @@ function processResult(result, s) {
   s.updatedAt = new Date();
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
-  // targetMax: null = normal mod (baraj yok), sayı = aktif baraj seviyesi
-  if (s.phase === "observation") { s.phase = "active"; s.observationCount = 0; }
+  // Gözlem modu: 3 üst üste kayıptan sonra 3 el bekle
+  if (s.phase === "observation") {
+    s.observationCount = (s.observationCount || 0) + 1;
+    if (s.observationCount >= 3) {
+      s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
+      s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
+    }
+    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Sistem hazır — bahis başlıyor", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+  }
   if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   const leader = getLeader(s.bpHistory);
   if (r === "T") {
@@ -126,8 +134,8 @@ function processResult(result, s) {
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    // +3 birim kâr: referans yine aynı baseTarget
-    const gameOverTarget = baseTarget + 3 * s.baseUnit;
+    // +2 birim kâr: referans yine aynı baseTarget
+    const gameOverTarget = baseTarget + 2 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
@@ -137,6 +145,11 @@ function processResult(result, s) {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     applyLossLevel(s);
     s.consecutiveLosses++;
+    // 3 üst üste kayıp → 3 el gözlem moduna gir
+    if (s.consecutiveLosses >= 3) {
+      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
+      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 kayıp — 3 el gözlem başlıyor", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    }
     s.lossStep = (s.lossStep + 1) % 2;
     if (s.lossStep === 1) { s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B"; s.currentUnit = 2; }
     else { s.currentSuggestion = leader; s.currentUnit = 1; }
