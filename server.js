@@ -132,8 +132,8 @@ function processResult(result, s) {
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    // +2 birim kâr: referans yine aynı baseTarget
-    const gameOverTarget = baseTarget + 2 * s.baseUnit;
+    // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2 (sabit hedef)
+    const gameOverTarget = inBarrier ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
