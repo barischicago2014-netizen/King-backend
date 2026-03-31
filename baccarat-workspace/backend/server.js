@@ -77,19 +77,19 @@ function getLossThreshold(initialBankroll, lossLevel) {
   return initialBankroll * percentages[Math.min(lossLevel, percentages.length - 1)];
 }
 function applyLossLevel(s) {
-  const threshold = getLossThreshold(s.bankroll, s.lossLevel);
-  if (s.balance < threshold) {
-    // Baraj tetikleniyor → targetMax baraj seviyesine çekilir
-    s.lossLevel = Math.min(s.lossLevel + 1, 7);
-    s.targetMax = fmt(threshold);
-  } else {
-    // Barajdan çıkıyoruz → lossLevel düşer
-    s.lossLevel = Math.max(0, s.lossLevel - 1);
-    // 🔥 KRİTİK: Barajdan tamamen çıkınca targetMax null olur (normal mod)
-    if (s.lossLevel === 0) {
-      s.targetMax = null;
-    }
+  const pcts = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+  let level = 0;
+  for (let i = 0; i < pcts.length; i++) {
+    if (s.balance < s.bankroll * pcts[i]) level = i + 1;
+    else break;
   }
+  s.lossLevel = Math.min(level, 7);
+  if (s.lossLevel > 0) {
+    // Baraj tetiklendi veya derinleşti → targetMax güncelle
+    s.targetMax = fmt(s.bankroll * pcts[s.lossLevel - 1]);
+  }
+  // lossLevel=0 olunca targetMax SİLİNMEZ — game over veya reset'te temizlenir
+  // Böylece 900 barajından geçince bile targetMax=900 sabit kalır
 }
 function processResult(result, s) {
   const r = String(result).toUpperCase().trim();
@@ -100,8 +100,15 @@ function processResult(result, s) {
   s.updatedAt = new Date();
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
-  // targetMax: null = normal mod (baraj yok), sayı = aktif baraj seviyesi
-  if (s.phase === "observation") { s.phase = "active"; s.observationCount = 0; }
+  // Gözlem modu: 3 üst üste kayıptan sonra 3 el bekle
+  if (s.phase === "observation") {
+    s.observationCount = (s.observationCount || 0) + 1;
+    if (s.observationCount >= 3) {
+      s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
+      s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
+    }
+    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Sistem hazır — bahis başlıyor", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+  }
   if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   const leader = getLeader(s.bpHistory);
   if (r === "T") {
@@ -113,11 +120,9 @@ function processResult(result, s) {
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    // 🔴 ÖNEMLİ: Barajda mıyız? Bunu applyLossLevel'dan ÖNCE kilitliyoruz
-    // Koşul: targetMax belirliyse VE maxWin'den küçükse VE balance hâlâ targetMax'ın altındaysa
-    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin && s.balance < s.targetMax;
-    // Bu çağrı lossLevel'ı değiştirebilir ama inBarrier artık sabit
-    applyLossLevel(s);
+    // Baraj kontrolü: targetMax set edilmişse VE maxWin'den küçükse → barajdayız
+    // NOT: applyLossLevel win'de çağrılmaz — baraj bir kez set olduktan sonra game over'a kadar sabit kalır
+    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
     const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses = 0; s.lossStep = 0; s.currentSuggestion = leader;
     // Baraj modundaysak: targetMax + 1 birim, Normal moddaysak: maxWin + 1 birim
@@ -126,9 +131,8 @@ function processResult(result, s) {
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    console.log(`[WIN] balance=${s.balance} maxWin=${s.maxWin} targetMax=${s.targetMax} inBarrier=${inBarrier} baseTarget=${baseTarget} target=${target} nextUnit=${nextUnit}`);
-    // +3 birim kâr: referans yine aynı baseTarget
-    const gameOverTarget = baseTarget + 3 * s.baseUnit;
+    // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2 (sabit hedef)
+    const gameOverTarget = inBarrier ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
@@ -138,6 +142,11 @@ function processResult(result, s) {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     applyLossLevel(s);
     s.consecutiveLosses++;
+    // 3 üst üste kayıp → 3 el gözlem moduna gir
+    if (s.consecutiveLosses >= 3) {
+      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
+      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 kayıp — 3 el gözlem başlıyor", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    }
     s.lossStep = (s.lossStep + 1) % 2;
     if (s.lossStep === 1) { s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B"; s.currentUnit = 2; }
     else { s.currentSuggestion = leader; s.currentUnit = 1; }
@@ -193,9 +202,8 @@ app.post("/game/start", auth, async (req, res) => {
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const targetMax = fmt(bankroll + 3 * baseUnit);
-    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax });
-    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin, sistem baslasın" });
+    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
+    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin, sistem baslasın" });
   } catch (err) { return res.status(500).json({ message: "Oyun baslatılamadi", error: err.message }); }
 });
 
@@ -224,9 +232,8 @@ app.post("/game/reset", auth, async (req, res) => {
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const targetMax = fmt(bankroll + 3 * baseUnit);
-    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax });
-    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin" });
+    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
+    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin" });
   } catch (err) { return res.status(500).json({ message: "Reset basarisiz", error: err.message }); }
 });
 
