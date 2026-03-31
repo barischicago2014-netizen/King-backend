@@ -121,11 +121,9 @@ function processResult(result, s) {
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    // 🔴 ÖNEMLİ: Barajda mıyız? Bunu applyLossLevel'dan ÖNCE kilitliyoruz
-    // Koşul: targetMax belirliyse VE maxWin'den küçükse VE balance hâlâ targetMax'ın altındaysa
-    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin && s.balance < s.targetMax;
-    // Bu çağrı lossLevel'ı değiştirebilir ama inBarrier artık sabit
-    applyLossLevel(s);
+    // Baraj kontrolü: targetMax set edilmişse VE maxWin'den küçükse → barajdayız
+    // NOT: applyLossLevel win'de çağrılmaz — baraj bir kez set olduktan sonra game over'a kadar sabit kalır
+    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
     const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
     s.consecutiveLosses = 0; s.lossStep = 0; s.currentSuggestion = leader;
     // Baraj modundaysak: targetMax + 1 birim, Normal moddaysak: maxWin + 1 birim
