@@ -148,9 +148,9 @@ function processResult(result, s) {
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
       return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 kayıp — 3 el gözlem başlıyor", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
     }
-    // Her kayıpta seçenek flip: B→P→B; 2. kayıpta birim 2'ye çıkar
+    // Her kayıpta seçenek flip: B→P→B; 1. kayıpta birim 2, 2. kayıpta birim 1
     s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
-    s.currentUnit = s.consecutiveLosses === 2 ? 2 : 1;
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAYIP -" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
