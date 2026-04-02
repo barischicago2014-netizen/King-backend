@@ -344,6 +344,26 @@ app.post("/game/analysis", auth, async (req, res) => {
 // ===== DAILY EMAIL REPORT =====
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
+async function buildCsvContent(sessions) {
+  const csvRows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Oneri,Birim,Bahis Tutari,Sonuc,Kazanc/Kayip,Bakiye,Faz"];
+  for (const s of sessions) {
+    const start = s.startedAt ? s.startedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
+    const end = s.updatedAt ? s.updatedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
+    const durMin = s.startedAt && s.updatedAt ? Math.round((s.updatedAt - s.startedAt) / 60000) : "-";
+    const sessionId = String(s._id).slice(-6);
+    const user = s.username || String(s.userId).slice(-6);
+    if (!s.handLog || s.handLog.length === 0) {
+      csvRows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},,,,,,,,`);
+    } else {
+      for (const h of s.handLog) {
+        const wl = h.win ? `+${h.betAmount}` : `-${h.betAmount}`;
+        csvRows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${wl},${h.balanceAfter},${h.phase}`);
+      }
+    }
+  }
+  return "\uFEFF" + csvRows.join("\n");
+}
+
 async function sendDailyReport() {
   if (!resend) { console.log("Resend key yok"); return; }
   try {
@@ -365,8 +385,16 @@ async function sendDailyReport() {
     }
     const totalColor = totalNet >= 0 ? "#2ecc71" : "#e74c3c";
     const dateStr = new Date().toLocaleDateString("tr-TR");
-    const html = "<div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto'><h2 style='color:#333;border-bottom:2px solid #333;padding-bottom:10px'>King Gunluk Rapor - " + dateStr + "</h2><table style='border-collapse:collapse;width:100%'><tr style='background:#2c3e50;color:#fff'><th style='padding:10px;text-align:left'>Oyuncu</th><th style='padding:10px;text-align:right'>Baslangic</th><th style='padding:10px;text-align:right'>Guncel Bakiye</th><th style='padding:10px;text-align:right'>Net Kazanc/Kayip</th></tr>" + rows + "<tr style='background:#ecf0f1;font-weight:bold'><td colspan='3' style='padding:10px;border:1px solid #ddd'>TOPLAM NET</td><td style='padding:10px;border:1px solid #ddd;color:" + totalColor + ";font-size:16px'>" + (totalNet >= 0 ? "+" : "") + totalNet + "</td></tr></table><p style='color:#999;font-size:12px;margin-top:20px'>King Baccarat - Otomatik Gunluk Rapor</p></div>";
-    await resend.emails.send({ from: "King Rapor <onboarding@resend.dev>", to: "reportofking@gmail.com", subject: "King Gunluk Rapor - " + dateStr, html });
+    const html = "<div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto'><h2 style='color:#333;border-bottom:2px solid #333;padding-bottom:10px'>King Gunluk Rapor - " + dateStr + "</h2><table style='border-collapse:collapse;width:100%'><tr style='background:#2c3e50;color:#fff'><th style='padding:10px;text-align:left'>Oyuncu</th><th style='padding:10px;text-align:right'>Baslangic</th><th style='padding:10px;text-align:right'>Guncel Bakiye</th><th style='padding:10px;text-align:right'>Net Kazanc/Kayip</th></tr>" + rows + "<tr style='background:#ecf0f1;font-weight:bold'><td colspan='3' style='padding:10px;border:1px solid #ddd'>TOPLAM NET</td><td style='padding:10px;border:1px solid #ddd;color:" + totalColor + ";font-size:16px'>" + (totalNet >= 0 ? "+" : "") + totalNet + "</td></tr></table><p style='color:#999;font-size:12px;margin-top:20px'>King Baccarat - Otomatik Gunluk Rapor | Full detay CSV ekte</p></div>";
+    const csvContent = await buildCsvContent(sessions);
+    const fileName = "king-rapor-" + new Date().toISOString().slice(0, 10) + ".csv";
+    await resend.emails.send({
+      from: "King Rapor <onboarding@resend.dev>",
+      to: "reportofking@gmail.com",
+      subject: "King Gunluk Rapor - " + dateStr,
+      html,
+      attachments: [{ filename: fileName, content: Buffer.from(csvContent).toString("base64") }],
+    });
     console.log("Rapor gonderildi:", dateStr);
   } catch (err) { console.error("Rapor gonderilemedi:", err.message); }
 }
