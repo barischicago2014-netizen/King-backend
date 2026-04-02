@@ -52,7 +52,19 @@ const SessionSchema = new mongoose.Schema({
   currentSuggestion: { type: String, default: null },
   currentUnit: { type: Number, default: 1 },
   isActive: { type: Boolean, default: true },
+  startedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
+  handLog: [{
+    handNo: Number,
+    suggestion: String,
+    unit: Number,
+    betAmount: Number,
+    result: String,
+    win: Boolean,
+    balanceAfter: Number,
+    phase: String,
+    timestamp: Date,
+  }],
 });
 const Session = mongoose.model("Session", SessionSchema);
 
@@ -118,8 +130,11 @@ function processResult(result, s) {
   }
   if (!s.currentSuggestion) { s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0; }
   const win = r === s.currentSuggestion;
+  const handEntry = { handNo: s.handLog ? s.handLog.length + 1 : 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: fmt(s.currentUnit * s.baseUnit), result: r, win, phase: s.phase, timestamp: new Date() };
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
+    handEntry.balanceAfter = s.balance;
+    if (s.handLog) s.handLog.push(handEntry);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
     // Baraj kontrolü: targetMax set edilmişse VE maxWin'den küçükse → barajdayız
     // NOT: applyLossLevel win'de çağrılmaz — baraj bir kez set olduktan sonra game over'a kadar sabit kalır
@@ -141,6 +156,8 @@ function processResult(result, s) {
     return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: msg, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   } else {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
+    handEntry.balanceAfter = s.balance;
+    if (s.handLog) s.handLog.push(handEntry);
     applyLossLevel(s);
     s.consecutiveLosses++;
     // 3 üst üste kayıp → 3 el gözlem moduna gir
@@ -277,6 +294,35 @@ app.get("/admin/report", async (req, res) => {
     const players = Object.values(userMap).map((u) => ({ ...u, pnl: fmt(u.lastBalance - u.lastBankroll), lastActive: u.lastActive ? u.lastActive.toISOString().slice(0, 16).replace("T", " ") : "-" }));
     return res.json({ totalPlayers: players.length, totalSessions: sessions.length, players });
   } catch (err) { return res.status(500).json({ message: "Rapor alinamadi", error: err.message }); }
+});
+
+app.get("/admin/export-csv", async (req, res) => {
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  try {
+    const sessions = await Session.find().sort({ startedAt: -1 });
+    const rows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Oneri,Birim,Bahis Tutari,Sonuc,Kazanc/Kayip,Bakiye,Faz"];
+    for (const s of sessions) {
+      const start = s.startedAt ? s.startedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
+      const end = s.updatedAt ? s.updatedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
+      const durMin = s.startedAt && s.updatedAt ? Math.round((s.updatedAt - s.startedAt) / 60000) : "-";
+      const sessionId = String(s._id).slice(-6);
+      const user = s.username || String(s.userId).slice(-6);
+      if (!s.handLog || s.handLog.length === 0) {
+        rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},,,,,,,,`);
+      } else {
+        for (const h of s.handLog) {
+          const hTime = h.timestamp ? h.timestamp.toISOString().slice(0, 16).replace("T", " ") : "-";
+          const wl = h.win ? `+${h.betAmount}` : `-${h.betAmount}`;
+          rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${wl},${h.balanceAfter},${h.phase}`);
+        }
+      }
+    }
+    const csv = rows.join("\n");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="king-report-${new Date().toISOString().slice(0,10)}.csv"`);
+    return res.send("\uFEFF" + csv);
+  } catch (err) { return res.status(500).json({ message: "CSV alinamadi", error: err.message }); }
 });
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
