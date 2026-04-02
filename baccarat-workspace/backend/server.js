@@ -105,20 +105,18 @@ function processResult(result, s) {
     s.observationCount = (s.observationCount || 0) + 1;
     if (s.observationCount >= 3) {
       s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
-      // currentSuggestion kasıtlı olarak null bırakıldı — sonraki giriş öneriyi gösterir, bahis uygulamaz
+      s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
     }
-    return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem tamamlandı — bir sonraki el için öneri bekleniyor", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
-  const leader = getLeader(s.bpHistory);
+  // leader: mevcut sonuç dahil edilmeden hesapla (ilk kurulum için önemli)
+  const leader = getLeader(s.bpHistory.length === 3 && !s.currentSuggestion ? s.bpHistory.slice(0, -1) : s.bpHistory);
   if (r === "T") {
-    if (!s.currentSuggestion) { s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; }
+    if (!s.currentSuggestion) { s.currentSuggestion = getLeader(s.bpHistory.slice(0, -1)); s.currentUnit = 1; s.phase = "active"; }
     return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: "TIE", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
-  if (!s.currentSuggestion) {
-    s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
-    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "Sistem hazır — ilk bahis: " + s.currentSuggestion, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
-  }
+  if (!s.currentSuggestion) { s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0; }
   const win = r === s.currentSuggestion;
   if (win) {
     s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
@@ -150,8 +148,9 @@ function processResult(result, s) {
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
       return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 kayıp — 3 el gözlem başlıyor", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
     }
-    if (s.consecutiveLosses === 2) { s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B"; s.currentUnit = 2; }
-    else { s.currentSuggestion = leader; s.currentUnit = 1; }
+    // Her kayıpta seçenek flip: B→P→B; 2. kayıpta birim 2'ye çıkar
+    s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
+    s.currentUnit = s.consecutiveLosses === 2 ? 2 : 1;
     return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAYIP -" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
