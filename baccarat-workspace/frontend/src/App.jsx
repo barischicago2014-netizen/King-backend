@@ -35,6 +35,7 @@ export default function App() {
   const [bankrollError, setBankrollError] = useState("");
   const [loading, setLoading] = useState(false);
   const [gs, setGs] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
   const [dealCards, setDealCards] = useState(null);
   const [lastResult, setLastResult] = useState(null);
   const [flash, setFlash] = useState(null);
@@ -78,6 +79,7 @@ export default function App() {
     try {
       const res = await api.post("/game/start", { bankroll: amount });
       setGs(res.data);
+      setSessionId(res.data.sessionId || null);
       setLastResult(null);
       setDealCards(null);
       setBankrollInput("");
@@ -132,8 +134,9 @@ export default function App() {
     if (loading || gs?.gameOver) return;
     setLoading(true);
     try {
-      const res = await api.post("/game/result", { result });
+      const res = await api.post("/game/result", { result, sessionId });
       setLastResult(result);
+      if (res.data.sessionId) setSessionId(res.data.sessionId);
       setGs((prev) => ({ ...prev, ...res.data }));
       if (res.data.win === true) {
         showFlash(`+${res.data.actualBet}`, C.green);
@@ -157,6 +160,7 @@ export default function App() {
       const newBankroll = res.data.balance;
       const startRes = await api.post("/game/reset", { bankroll: newBankroll });
       setGs(startRes.data);
+      setSessionId(startRes.data.sessionId || null);
       setLastResult(null);
     } finally { setLoading(false); }
   }
@@ -168,6 +172,7 @@ export default function App() {
     try {
       const res = await api.post("/game/reset", { bankroll: newBankroll });
       setGs(res.data);
+      setSessionId(res.data.sessionId || null);
       setLastResult(null);
     } finally { setLoading(false); }
   }
