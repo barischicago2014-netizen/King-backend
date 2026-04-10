@@ -316,7 +316,7 @@ export default function App() {
           {gs && !gs.gameOver && (
             <div style={S.recBox}>
               {gs.recommendation ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 18 }}>{gs.unit} birim{gs.actualBet ? ` (${gs.actualBet})` : ""}</div></>
+                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 18 }}>{gs.unit} birim{gs.actualBet ? ` $${gs.actualBet}` : ""}</div></>
               ) : (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>BEKLENIYOR</div><div style={{ color: C.gray, fontSize: 18 }}>{gs.message}</div></>
               )}
@@ -371,7 +371,7 @@ export default function App() {
                 <>
                   <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div>
                   <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 8, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
-                  {gs.actualBet && <div style={{ color: C.gold, fontSize: 28, fontWeight: "bold" }}>${gs.actualBet}</div>}
+                  {gs.actualBet && <div style={{ color: C.gold, fontSize: 28, fontWeight: "bold" }}>{gs.unit} birim ${gs.actualBet}</div>}
                 </>
               ) : null}
             </div>
