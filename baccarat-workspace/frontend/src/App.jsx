@@ -159,9 +159,10 @@ export default function App() {
       const res = await api.post("/game/finish");
       const newBankroll = res.data.balance;
       const startRes = await api.post("/game/reset", { bankroll: newBankroll });
-      setGs(startRes.data);
+      setGs({ ...startRes.data, scoreboard: { B: 0, P: 0, T: 0 }, history: [] });
       setSessionId(startRes.data.sessionId || null);
       setLastResult(null);
+      setAiData(null);
     } finally { setLoading(false); }
   }
 
@@ -171,9 +172,10 @@ export default function App() {
     setLoading(true);
     try {
       const res = await api.post("/game/reset", { bankroll: newBankroll });
-      setGs(res.data);
+      setGs({ ...res.data, scoreboard: { B: 0, P: 0, T: 0 }, history: [] });
       setSessionId(res.data.sessionId || null);
       setLastResult(null);
+      setAiData(null);
     } finally { setLoading(false); }
   }
 

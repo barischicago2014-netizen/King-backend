@@ -291,13 +291,12 @@ app.post("/game/reset", auth, async (req, res) => {
     // Önceki session geçmişini taşı (sign out'a kadar birikmeli)
     const prevSession = await Session.findOne({ userId: req.user.id }).sort({ startedAt: -1 });
     const carryBpHistory = prevSession && prevSession.bpHistory ? [...prevSession.bpHistory] : [];
-    const carryFullHistory = prevSession && prevSession.fullHistory ? [...prevSession.fullHistory] : [];
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    // Her yeni masada 3 setup eli zorunlu — carry geçmişi öneri kalitesini artırır
+    // fullHistory sıfırlanır (scoreboard temiz başlar), bpHistory taşınır (setup öneri kalitesi için)
     const session = await Session.create({
       userId: req.user.id, username: req.user.username, bankroll, baseUnit,
       balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null,
-      fullHistory: carryFullHistory, bpHistory: carryBpHistory,
+      fullHistory: [], bpHistory: carryBpHistory,
       phase: "waiting", currentSuggestion: null, currentUnit: 1,
       consecutiveLosses: 0, lossStep: 0, observationCount: 0, sessionHandCount: 0,
     });
