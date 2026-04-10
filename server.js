@@ -185,7 +185,8 @@ function processResult(result, s) {
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
     const baseTarget = inBarrier ? s.targetMax : s.maxWin;
     let target = baseTarget + s.baseUnit;
-    let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
+    const payoutPerUnit = s.currentSuggestion === "B" ? s.baseUnit * 0.95 : s.baseUnit;
+    let nextUnit = Math.ceil((target - s.balance) / payoutPerUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
     const nextBet = roundBet(s.currentUnit * s.baseUnit);
