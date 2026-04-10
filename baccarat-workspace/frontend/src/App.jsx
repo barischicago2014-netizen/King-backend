@@ -159,10 +159,9 @@ export default function App() {
       const res = await api.post("/game/finish");
       const newBankroll = res.data.balance;
       const startRes = await api.post("/game/reset", { bankroll: newBankroll });
-      setGs({ ...startRes.data, scoreboard: { B: 0, P: 0, T: 0 }, history: [] });
+      setGs(startRes.data);
       setSessionId(startRes.data.sessionId || null);
       setLastResult(null);
-      setAiData(null);
     } finally { setLoading(false); }
   }
 
@@ -172,10 +171,9 @@ export default function App() {
     setLoading(true);
     try {
       const res = await api.post("/game/reset", { bankroll: newBankroll });
-      setGs({ ...res.data, scoreboard: { B: 0, P: 0, T: 0 }, history: [] });
+      setGs(res.data);
       setSessionId(res.data.sessionId || null);
       setLastResult(null);
-      setAiData(null);
     } finally { setLoading(false); }
   }
 
@@ -247,9 +245,7 @@ export default function App() {
   // ═══ BANKROLL ═══════════════════════════════════════
   if (screen === "bankroll") {
     const preview = parseFloat(bankrollInput);
-    const rawUnit = preview > 0 ? preview * 0.005 : null;
-    const effectiveBet = rawUnit ? (rawUnit < 7 ? 5 : rawUnit < 10 ? 7 : Math.floor(rawUnit)) : null;
-    const unitPreview = rawUnit ? rawUnit.toFixed(2) : null;
+    const unitPreview = preview > 0 ? (preview * 0.005).toFixed(2) : null;
     return (
       <div style={S.page}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -267,9 +263,9 @@ export default function App() {
               onKeyDown={(e) => e.key === "Enter" && handleBankrollStart()}
               autoFocus
             />
-            {effectiveBet && (
+            {unitPreview && (
               <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>
-                Min. bahis: <span style={{ color: C.gold }}>${effectiveBet}</span> <span style={{ color: C.gray, fontSize: 11 }}>(birim: {unitPreview})</span>
+                Birim değeri: <span style={{ color: C.gold }}>{unitPreview}</span> (bankroll × 0.5%)
               </p>
             )}
             {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
@@ -318,7 +314,7 @@ export default function App() {
           {gs && !gs.gameOver && (
             <div style={S.recBox}>
               {gs.recommendation ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>{gs.actualBet && <div style={{ color: C.gold, fontSize: 18 }}>${gs.actualBet}</div>}</>
+                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 18 }}>{gs.unit} birim{gs.actualBet ? ` (${gs.actualBet})` : ""}</div></>
               ) : (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>BEKLENIYOR</div><div style={{ color: C.gray, fontSize: 18 }}>{gs.message}</div></>
               )}
@@ -372,8 +368,9 @@ export default function App() {
               ) : gs.recommendation ? (
                 <>
                   <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div>
-                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 8, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
-                  {gs.actualBet && <div style={{ color: C.gold, fontSize: 28, fontWeight: "bold" }}>${gs.actualBet}</div>}
+                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 4, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
+                  <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>{gs.unit} birim</div>
+                  {gs.actualBet && <div style={{ color: C.white, fontSize: 16, marginTop: 4, opacity: 0.8 }}>({gs.actualBet})</div>}
                 </>
               ) : null}
             </div>
