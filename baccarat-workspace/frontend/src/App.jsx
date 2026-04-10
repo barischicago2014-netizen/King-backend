@@ -245,7 +245,9 @@ export default function App() {
   // ═══ BANKROLL ═══════════════════════════════════════
   if (screen === "bankroll") {
     const preview = parseFloat(bankrollInput);
-    const unitPreview = preview > 0 ? (preview * 0.005).toFixed(2) : null;
+    const rawUnit = preview > 0 ? preview * 0.005 : null;
+    const effectiveBet = rawUnit ? (rawUnit < 7 ? 5 : rawUnit < 10 ? 7 : Math.floor(rawUnit)) : null;
+    const unitPreview = rawUnit ? rawUnit.toFixed(2) : null;
     return (
       <div style={S.page}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -263,9 +265,9 @@ export default function App() {
               onKeyDown={(e) => e.key === "Enter" && handleBankrollStart()}
               autoFocus
             />
-            {unitPreview && (
+            {effectiveBet && (
               <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>
-                Birim değeri: <span style={{ color: C.gold }}>{unitPreview}</span> (bankroll × 0.5%)
+                Min. bahis: <span style={{ color: C.gold }}>${effectiveBet}</span> <span style={{ color: C.gray, fontSize: 11 }}>(birim: {unitPreview})</span>
               </p>
             )}
             {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
@@ -368,9 +370,8 @@ export default function App() {
               ) : gs.recommendation ? (
                 <>
                   <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div>
-                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 4, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
-                  <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>{gs.unit} birim</div>
-                  {gs.actualBet && <div style={{ color: C.white, fontSize: 16, marginTop: 4, opacity: 0.8 }}>({gs.actualBet})</div>}
+                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 8, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
+                  {gs.actualBet && <div style={{ color: C.gold, fontSize: 28, fontWeight: "bold" }}>${gs.actualBet}</div>}
                 </>
               ) : null}
             </div>
