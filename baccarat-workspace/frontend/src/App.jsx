@@ -364,7 +364,7 @@ export default function App() {
           {gs && !gs.gameOver && (
             <div style={S.recBox}>
               {phase === "waiting" ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>BAŞLANGIÇ</div><div style={{ color: C.gray, fontSize: 18 }}>{Math.max(0, 3 - (sc.B + sc.P))} sonuç daha girin</div></>
+                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>BAŞLANGIÇ</div><div style={{ color: C.gray, fontSize: 18 }}>{Math.max(0, 3 - (gs?.sessionHandCount || 0))} sonuç daha girin</div></>
               ) : gs.recommendation ? (
                 <>
                   <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div>
