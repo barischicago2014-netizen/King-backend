@@ -54,11 +54,14 @@ const SessionSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   startedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
+  sessionHandCount: { type: Number, default: 0 },
   handLog: [{
     handNo: Number,
     suggestion: String,
     unit: Number,
     betAmount: Number,
+    commission: Number,
+    payout: Number,
     result: String,
     win: Boolean,
     balanceAfter: Number,
@@ -84,6 +87,11 @@ function getScoreboard(history) {
   return { B: history.filter((r) => r === "B").length, P: history.filter((r) => r === "P").length, T: history.filter((r) => r === "T").length };
 }
 function fmt(n) { return Number(n.toFixed(2)); }
+function roundBet(amount) {
+  if (amount < 7) return 5;
+  if (amount < 10) return 7;
+  return Math.floor(amount);
+}
 function getLossThreshold(initialBankroll, lossLevel) {
   const percentages = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
   return initialBankroll * percentages[Math.min(lossLevel, percentages.length - 1)];
@@ -108,77 +116,107 @@ function processResult(result, s) {
   if (!["B", "P", "T"].includes(r)) throw new Error("Gecersiz sonuc");
   if (s.phase === "gameover") return { gameOver: true, balance: s.balance, scoreboard: getScoreboard(s.fullHistory) };
   s.fullHistory.push(r);
-  if (r !== "T") s.bpHistory.push(r);
+  if (r !== "T") {
+    s.bpHistory.push(r);
+    s.sessionHandCount = (s.sessionHandCount || 0) + 1;
+  }
   s.updatedAt = new Date();
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
-  // Gözlem modu: 3 üst üste kayıptan sonra 3 el bekle
+  const sHands = s.sessionHandCount || 0;
+  // base: lossLevel/targetMax dinamik — applyLossLevel sonrası güncel değer için fn kullan
+  const baseStatic = { scoreboard, history, baseUnit: s.baseUnit, bankroll: s.bankroll, sessionHandCount: sHands };
+  const dynFields = () => ({ lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null });
+  const base = { ...baseStatic, ...dynFields() };
+
+  // Gözlem modu
   if (s.phase === "observation") {
     s.observationCount = (s.observationCount || 0) + 1;
     if (s.observationCount >= 3) {
       s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
       s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
     }
-    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    const ab = s.phase === "active" ? roundBet(s.currentUnit * s.baseUnit) : null;
+    return { ...base, balance: fmt(s.balance), recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: ab, phase: s.phase, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor" };
   }
-  if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
-  // leader: mevcut sonuç dahil edilmeden hesapla (ilk kurulum için önemli)
-  const leader = getLeader(s.bpHistory.length === 3 && !s.currentSuggestion ? s.bpHistory.slice(0, -1) : s.bpHistory);
+
+  // Setup: her yeni masada 3 BP el sonuç takibi yapılır, bahis değerlendirilmez
+  if (!s.currentSuggestion && sHands < 3) {
+    return { ...base, balance: fmt(s.balance), recommendation: null, unit: null, actualBet: null, phase: "waiting", message: `${3 - sHands} sonuc daha girin` };
+  }
+
+  // TIE
   if (r === "T") {
-    if (!s.currentSuggestion) { s.currentSuggestion = getLeader(s.bpHistory.slice(0, -1)); s.currentUnit = 1; s.phase = "active"; }
-    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: "TIE", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentSuggestion ? roundBet(s.currentUnit * s.baseUnit) : null, phase: s.phase, message: "TIE" };
   }
-  if (!s.currentSuggestion) {
+
+  // İlk aktivasyon: setup ellerinin ilk 2'si ile öneri belirle (carry geçmişi dahil değil)
+  const isFirstActivation = !s.currentSuggestion;
+  const leader = isFirstActivation
+    ? getLeader(s.bpHistory.slice(-sHands, -1))   // son sHands elden ilk ikisi
+    : getLeader(s.bpHistory);                       // sonraki eller için tam geçmiş
+
+  if (isFirstActivation) {
     s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
-    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "Sistem hazır — ilk bahis: " + s.currentSuggestion, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    const ab = roundBet(s.currentUnit * s.baseUnit);
+    return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: ab, phase: "active", message: "Sistem hazır — ilk bahis: " + s.currentSuggestion };
   }
+
+  // Bahis değerlendirme
   const win = r === s.currentSuggestion;
-  const handEntry = { handNo: s.handLog ? s.handLog.length + 1 : 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: fmt(s.currentUnit * s.baseUnit), result: r, win, phase: s.phase, timestamp: new Date() };
+  if (!s.handLog) s.handLog = [];
+  const betAmt = roundBet(s.currentUnit * s.baseUnit);
+  const handEntry = { handNo: s.handLog.length + 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: betAmt, result: r, win, phase: s.phase, timestamp: new Date() };
+
   if (win) {
-    s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
+    // Banker kazancında %5 komisyon
+    const commission = s.currentSuggestion === "B" ? fmt(betAmt * 0.05) : 0;
+    const payout = fmt(betAmt - commission);
+    s.balance = fmt(s.balance + payout);
+    handEntry.commission = commission;
+    handEntry.payout = payout;
     handEntry.balanceAfter = s.balance;
-    if (s.handLog) s.handLog.push(handEntry);
+    s.handLog.push(handEntry);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    // Baraj kontrolü: targetMax set edilmişse VE maxWin'den küçükse → barajdayız
-    // NOT: applyLossLevel win'de çağrılmaz — baraj bir kez set olduktan sonra game over'a kadar sabit kalır
     const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
-    const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
+    const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
+    const msg = `KAZANÇ +${payout}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    // Baraj modundaysak: targetMax + 1 birim, Normal moddaysak: maxWin + 1 birim
     const baseTarget = inBarrier ? s.targetMax : s.maxWin;
     let target = baseTarget + s.baseUnit;
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2 (sabit hedef)
+    const nextBet = roundBet(s.currentUnit * s.baseUnit);
     const gameOverTarget = inBarrier ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
-      return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+      return { ...base, gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "gameover", message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})` };
     }
-    return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: msg, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    return { ...base, win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: msg };
   } else {
-    s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
+    s.balance = fmt(s.balance - betAmt);
+    handEntry.commission = 0;
+    handEntry.payout = -betAmt;
     handEntry.balanceAfter = s.balance;
-    if (s.handLog) s.handLog.push(handEntry);
+    s.handLog.push(handEntry);
     applyLossLevel(s);
     s.consecutiveLosses++;
-    // 3 üst üste kayıp → 3 el gözlem moduna gir
     if (s.consecutiveLosses >= 3) {
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 kayıp — 3 el gözlem başlıyor", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+      return { ...baseStatic, ...dynFields(), win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "observation", message: "3 kayıp — 3 el gözlem başlıyor" };
     }
-    // Her kayıpta seçenek flip: B→P→B; 1. kayıpta birim 2, 2. kayıpta birim 1
     s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-    return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAYIP -" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    const nextBet = roundBet(s.currentUnit * s.baseUnit);
+    return { ...baseStatic, ...dynFields(), win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: `KAYIP -${betAmt}` };
   }
 }
 
 function drawCard() { const cards = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"]; return cards[Math.floor(Math.random() * cards.length)]; }
 function cardValue(c) { if (c === "A") return 1; if (["10","J","Q","K"].includes(c)) return 0; return Number(c); }
 function handScore(cards) { return cards.reduce((s, c) => s + cardValue(c), 0) % 10; }
-function newDemoSession() { return { bankroll: 100, baseUnit: 0.5, balance: 100, maxWin: 100, fullHistory: [], bpHistory: [], consecutiveLosses: 0, lossStep: 0, lossLevel: 0, targetMax: null, phase: "waiting", observationCount: 0, currentSuggestion: null, currentUnit: 1 }; }
+function newDemoSession() { return { bankroll: 100, baseUnit: 0.5, balance: 100, maxWin: 100, fullHistory: [], bpHistory: [], consecutiveLosses: 0, lossStep: 0, lossLevel: 0, targetMax: null, phase: "waiting", observationCount: 0, currentSuggestion: null, currentUnit: 1, sessionHandCount: 0 }; }
 let demoSession = newDemoSession();
 
 app.get("/", (req, res) => res.send("Backend running"));
@@ -224,26 +262,35 @@ app.post("/game/start", auth, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
-    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin, sistem baslasın" });
+    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin, sistem baslasın" });
   } catch (err) { return res.status(500).json({ message: "Oyun baslatılamadi", error: err.message }); }
 });
 
 app.get("/game/state", auth, async (req, res) => {
   try {
-    const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ startedAt: -1 });
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
-    return res.json({ balance: fmt(session.balance), maxWin: fmt(session.maxWin), bankroll: session.bankroll, baseUnit: session.baseUnit, scoreboard: getScoreboard(session.fullHistory), recommendation: session.currentSuggestion, unit: session.currentUnit, actualBet: session.currentUnit ? fmt(session.currentUnit * session.baseUnit) : null, phase: session.phase, history: session.fullHistory.slice(-20), lossLevel: session.lossLevel ?? 0, targetMax: session.targetMax != null ? fmt(session.targetMax) : fmt(session.bankroll + 3 * session.baseUnit) });
+    return res.json({ sessionId: String(session._id), balance: fmt(session.balance), maxWin: fmt(session.maxWin), bankroll: session.bankroll, baseUnit: session.baseUnit, scoreboard: getScoreboard(session.fullHistory), recommendation: session.currentSuggestion, unit: session.currentUnit, actualBet: session.currentUnit ? fmt(session.currentUnit * session.baseUnit) : null, phase: session.phase, history: session.fullHistory.slice(-20), lossLevel: session.lossLevel ?? 0, targetMax: session.targetMax != null ? fmt(session.targetMax) : fmt(session.bankroll + 3 * session.baseUnit) });
   } catch (err) { return res.status(500).json({ message: "State alinamadi", error: err.message }); }
 });
 
 app.post("/game/result", auth, async (req, res) => {
   try {
-    const { result } = req.body;
-    const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    const { result, sessionId } = req.body;
+    let session;
+    if (sessionId) {
+      session = await Session.findOne({ _id: sessionId, userId: req.user.id, isActive: true });
+    }
+    if (!session) {
+      session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ startedAt: -1 });
+    }
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
     const state = processResult(result, session);
+    session.markModified("fullHistory");
+    session.markModified("bpHistory");
+    session.markModified("handLog");
     await session.save();
-    return res.json(state);
+    return res.json({ ...state, sessionId: String(session._id) });
   } catch (err) { return res.status(400).json({ message: err.message }); }
 });
 
@@ -252,9 +299,27 @@ app.post("/game/reset", auth, async (req, res) => {
     const bankroll = Number(req.body.bankroll);
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
     const baseUnit = fmt(bankroll * 0.005);
+    // Önceki session geçmişini taşı (sign out'a kadar birikmeli)
+    const prevSession = await Session.findOne({ userId: req.user.id }).sort({ startedAt: -1 });
+    const carryBpHistory = prevSession && prevSession.bpHistory ? [...prevSession.bpHistory] : [];
+    const carryFullHistory = prevSession && prevSession.fullHistory ? [...prevSession.fullHistory] : [];
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
-    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin" });
+    // Her yeni masada 3 setup eli zorunlu — carry geçmişi öneri kalitesini artırır
+    const session = await Session.create({
+      userId: req.user.id, username: req.user.username, bankroll, baseUnit,
+      balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null,
+      fullHistory: carryFullHistory, bpHistory: carryBpHistory,
+      phase: "waiting", currentSuggestion: null, currentUnit: 1,
+      consecutiveLosses: 0, lossStep: 0, observationCount: 0, sessionHandCount: 0,
+    });
+    const scoreboard = getScoreboard(session.fullHistory);
+    return res.json({
+      sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin,
+      bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard,
+      recommendation: null, unit: null, actualBet: null,
+      phase: "waiting", history: session.fullHistory.slice(-20),
+      sessionHandCount: 0, message: "3 sonuc girin",
+    });
   } catch (err) { return res.status(500).json({ message: "Reset basarisiz", error: err.message }); }
 });
 
@@ -304,7 +369,7 @@ app.get("/admin/export-csv", async (req, res) => {
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   try {
     const sessions = await Session.find().sort({ startedAt: -1 });
-    const rows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Oneri,Birim,Bahis Tutari,Sonuc,Kazanc/Kayip,Bakiye,Faz"];
+    const rows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Zaman,Oneri,Birim,Bahis Tutari,Komisyon,Net Kazanc/Kayip,Sonuc,Bakiye,Faz"];
     for (const s of sessions) {
       const start = s.startedAt ? s.startedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
       const end = s.updatedAt ? s.updatedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
@@ -312,12 +377,13 @@ app.get("/admin/export-csv", async (req, res) => {
       const sessionId = String(s._id).slice(-6);
       const user = s.username || String(s.userId).slice(-6);
       if (!s.handLog || s.handLog.length === 0) {
-        rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},,,,,,,,`);
+        rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},,,,,,,,,, `);
       } else {
         for (const h of s.handLog) {
           const hTime = h.timestamp ? h.timestamp.toISOString().slice(0, 16).replace("T", " ") : "-";
-          const wl = h.win ? `+${h.betAmount}` : `-${h.betAmount}`;
-          rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${wl},${h.balanceAfter},${h.phase}`);
+          const commission = h.commission || 0;
+          const net = h.win ? `+${h.payout ?? fmt(h.betAmount - commission)}` : `-${h.betAmount}`;
+          rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},${h.handNo},${hTime},${h.suggestion},${h.unit},${h.betAmount},${commission},${net},${h.result},${h.balanceAfter},${h.phase}`);
         }
       }
     }
@@ -335,12 +401,33 @@ app.post("/game/analysis", auth, async (req, res) => {
     if (!anthropic) return res.json({ ok: false, side: null, reason: "AI devre disi" });
     const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
-    const history = session.bpHistory.slice(-20);
-    if (history.length < 5) return res.json({ ok: false, side: null, reason: "Yeterli veri yok" });
-    const prompt = "Baccarat el analizi. Son " + history.length + " sonuc: " + history.join(",") + "\nBakiye: " + fmt(session.balance) + ", Bankroll: " + session.bankroll + ", Risk: L" + session.lossLevel + "\nSadece JSON: {\"side\":\"B\"|\"P\"|\"NEUTRAL\",\"reason\":\"max 8 kelime Turkce\"}";
-    const msg = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 80, messages: [{ role: "user", content: prompt }] });
+    const bp = session.bpHistory;
+    if (bp.length < 5) return res.json({ ok: false, side: null, reason: "Yeterli veri yok" });
+    const last20 = bp.slice(-20);
+    const last5 = bp.slice(-5);
+    const last10 = bp.slice(-10);
+    // Streak: son kaç el aynı taraf?
+    let streak = 1;
+    for (let i = bp.length - 2; i >= 0 && bp[i] === bp[bp.length - 1]; i--) streak++;
+    const streakSide = bp[bp.length - 1];
+    // Kısa/uzun vadeli oran
+    const bCount20 = last20.filter(x => x === "B").length;
+    const pCount20 = last20.length - bCount20;
+    const bCount5 = last5.filter(x => x === "B").length;
+    // Choppiness: son 10 elde kaç değişim?
+    let switches = 0;
+    for (let i = 1; i < last10.length; i++) if (last10[i] !== last10[i-1]) switches++;
+    const tableType = switches >= 7 ? "choppy(zigzag)" : switches <= 3 ? "streaky(seri)" : "karma";
+    const prompt =
+      `Baccarat masa analizi. Tablo tipi: ${tableType}. ` +
+      `Son 20 el: ${last20.join(",")}. ` +
+      `Son 20'de B:${bCount20} P:${pCount20}. Son 5'te B:${bCount5} P:${5-bCount5}. ` +
+      `Mevcut seri: ${streakSide} x${streak}. ` +
+      `Bakiye: ${fmt(session.balance)}, Bankroll: ${session.bankroll}, Risk seviyesi: L${session.lossLevel}. ` +
+      `Sadece JSON döndür: {"side":"B"|"P"|"NEUTRAL","reason":"max 8 kelime Turkce","confidence":"HIGH"|"MED"|"LOW"}`;
+    const msg = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 100, messages: [{ role: "user", content: prompt }] });
     const parsed = JSON.parse(msg.content[0].text.trim());
-    return res.json({ ok: true, side: parsed.side, reason: parsed.reason });
+    return res.json({ ok: true, side: parsed.side, reason: parsed.reason, confidence: parsed.confidence || "MED" });
   } catch (err) { return res.json({ ok: false, side: null, reason: null }); }
 });
 
@@ -348,7 +435,7 @@ app.post("/game/analysis", auth, async (req, res) => {
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 async function buildCsvContent(sessions) {
-  const csvRows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Oneri,Birim,Bahis Tutari,Sonuc,Kazanc/Kayip,Bakiye,Faz"];
+  const csvRows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Zaman,Oneri,Birim,Bahis Tutari,Komisyon,Net Kazanc/Kayip,Sonuc,Bakiye,Faz"];
   for (const s of sessions) {
     const start = s.startedAt ? s.startedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
     const end = s.updatedAt ? s.updatedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
@@ -356,11 +443,13 @@ async function buildCsvContent(sessions) {
     const sessionId = String(s._id).slice(-6);
     const user = s.username || String(s.userId).slice(-6);
     if (!s.handLog || s.handLog.length === 0) {
-      csvRows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},,,,,,,,`);
+      csvRows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},,,,,,,,,,`);
     } else {
       for (const h of s.handLog) {
-        const wl = h.win ? `+${h.betAmount}` : `-${h.betAmount}`;
-        csvRows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${wl},${h.balanceAfter},${h.phase}`);
+        const hTime = h.timestamp ? h.timestamp.toISOString().slice(0, 16).replace("T", " ") : "-";
+        const commission = h.commission || 0;
+        const net = h.win ? `+${h.payout ?? fmt(h.betAmount - commission)}` : `-${h.betAmount}`;
+        csvRows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},${h.handNo},${hTime},${h.suggestion},${h.unit},${h.betAmount},${commission},${net},${h.result},${h.balanceAfter},${h.phase}`);
       }
     }
   }
