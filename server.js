@@ -208,7 +208,7 @@ function processResult(result, s) {
       return { ...baseStatic, ...dynFields(), win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "observation", message: "3 kayıp — 3 el gözlem başlıyor" };
     }
     s.currentSuggestion = getLeader(s.fullHistory.filter(r => r !== "T"));
-    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
+    s.currentUnit = s.consecutiveLosses + 1;
     const nextBet = roundBet(s.currentUnit * s.baseUnit);
     return { ...baseStatic, ...dynFields(), win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: `KAYIP -${betAmt}` };
   }
