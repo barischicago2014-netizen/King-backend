@@ -262,9 +262,31 @@ app.post("/game/reset", auth, async (req, res) => {
     const bankroll = Number(req.body.bankroll);
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
     const baseUnit = fmt(bankroll * 0.005);
+    // Önceki session geçmişini taşı (sign out'a kadar birikmeli)
+    const prevSession = await Session.findOne({ userId: req.user.id }).sort({ startedAt: -1 });
+    const carryBpHistory = prevSession && prevSession.bpHistory ? [...prevSession.bpHistory] : [];
+    const carryFullHistory = prevSession && prevSession.fullHistory ? [...prevSession.fullHistory] : [];
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
-    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin" });
+    // Yeterli geçmiş varsa anında aktif başla
+    const hasHistory = carryBpHistory.length >= 3;
+    const initSuggestion = hasHistory ? getLeader(carryBpHistory) : null;
+    const initPhase = hasHistory ? "active" : "waiting";
+    const session = await Session.create({
+      userId: req.user.id, username: req.user.username, bankroll, baseUnit,
+      balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null,
+      fullHistory: carryFullHistory, bpHistory: carryBpHistory,
+      phase: initPhase, currentSuggestion: initSuggestion, currentUnit: 1,
+      consecutiveLosses: 0, lossStep: 0, observationCount: 0,
+    });
+    const scoreboard = getScoreboard(session.fullHistory);
+    return res.json({
+      sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin,
+      bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard,
+      recommendation: session.currentSuggestion, unit: session.currentUnit,
+      actualBet: session.currentSuggestion ? fmt(session.currentUnit * baseUnit) : null,
+      phase: session.phase, history: session.fullHistory.slice(-20),
+      message: session.currentSuggestion ? `Yeni masa — devam: ${session.currentSuggestion}` : "3 sonuc girin",
+    });
   } catch (err) { return res.status(500).json({ message: "Reset basarisiz", error: err.message }); }
 });
 
