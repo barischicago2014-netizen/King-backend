@@ -92,6 +92,9 @@ function roundBet(amount) {
   if (amount < 10) return 7;
   return Math.floor(amount);
 }
+function getBet(units, baseUnit) {
+  return roundBet(baseUnit) * units;
+}
 function getLossThreshold(initialBankroll, lossLevel) {
   const percentages = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
   return initialBankroll * percentages[Math.min(lossLevel, percentages.length - 1)];
@@ -136,7 +139,7 @@ function processResult(result, s) {
       s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
       s.currentSuggestion = getLeader(s.fullHistory.filter(r => r !== "T")); s.currentUnit = 1;
     }
-    const ab = s.phase === "active" ? roundBet(s.currentUnit * s.baseUnit) : null;
+    const ab = s.phase === "active" ? getBet(s.currentUnit, s.baseUnit) : null;
     return { ...base, balance: fmt(s.balance), recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: ab, phase: s.phase, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor" };
   }
 
@@ -147,7 +150,7 @@ function processResult(result, s) {
 
   // TIE
   if (r === "T") {
-    return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentSuggestion ? roundBet(s.currentUnit * s.baseUnit) : null, phase: s.phase, message: "TIE" };
+    return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentSuggestion ? getBet(s.currentUnit, s.baseUnit) : null, phase: s.phase, message: "TIE" };
   }
 
   // İlk aktivasyon: setup ellerinin ilk 2'si ile öneri belirle (carry geçmişi dahil değil)
@@ -159,14 +162,14 @@ function processResult(result, s) {
 
   if (isFirstActivation) {
     s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
-    const ab = roundBet(s.currentUnit * s.baseUnit);
+    const ab = getBet(s.currentUnit, s.baseUnit);
     return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: ab, phase: "active", message: "Sistem hazır — ilk bahis: " + s.currentSuggestion };
   }
 
   // Bahis değerlendirme
   const win = r === s.currentSuggestion;
   if (!s.handLog) s.handLog = [];
-  const betAmt = roundBet(s.currentUnit * s.baseUnit);
+  const betAmt = getBet(s.currentUnit, s.baseUnit);
   const handEntry = { handNo: s.handLog.length + 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: betAmt, result: r, win, phase: s.phase, timestamp: new Date() };
 
   if (win) {
@@ -184,13 +187,14 @@ function processResult(result, s) {
     const msg = `KAZANÇ +${payout}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
     const baseTarget = inBarrier ? s.targetMax : s.maxWin;
-    let target = baseTarget + s.baseUnit;
-    const payoutPerUnit = s.currentSuggestion === "B" ? s.baseUnit * 0.95 : s.baseUnit;
+    const baseRounded = roundBet(s.baseUnit);
+    let target = baseTarget + baseRounded;
+    const payoutPerUnit = s.currentSuggestion === "B" ? baseRounded * 0.95 : baseRounded;
     let nextUnit = Math.ceil((target - s.balance) / payoutPerUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    const nextBet = roundBet(s.currentUnit * s.baseUnit);
-    const gameOverTarget = inBarrier ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
+    const nextBet = getBet(s.currentUnit, s.baseUnit);
+    const gameOverTarget = inBarrier ? s.targetMax + 2 * baseRounded : s.bankroll + 2 * baseRounded;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { ...base, gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "gameover", message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})` };
@@ -210,7 +214,7 @@ function processResult(result, s) {
     }
     s.currentSuggestion = getLeader(s.fullHistory.filter(r => r !== "T"));
     s.currentUnit = s.consecutiveLosses + 1;
-    const nextBet = roundBet(s.currentUnit * s.baseUnit);
+    const nextBet = getBet(s.currentUnit, s.baseUnit);
     return { ...baseStatic, ...dynFields(), win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: `KAYIP -${betAmt}` };
   }
 }
