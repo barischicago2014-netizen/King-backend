@@ -134,7 +134,7 @@ function processResult(result, s) {
     s.observationCount = (s.observationCount || 0) + 1;
     if (s.observationCount >= 3) {
       s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
-      s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
+      s.currentSuggestion = getLeader(s.fullHistory.filter(r => r !== "T")); s.currentUnit = 1;
     }
     const ab = s.phase === "active" ? roundBet(s.currentUnit * s.baseUnit) : null;
     return { ...base, balance: fmt(s.balance), recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: ab, phase: s.phase, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor" };
@@ -152,9 +152,10 @@ function processResult(result, s) {
 
   // İlk aktivasyon: setup ellerinin ilk 2'si ile öneri belirle (carry geçmişi dahil değil)
   const isFirstActivation = !s.currentSuggestion;
+  const sessionBP = s.fullHistory.filter(r => r !== "T");
   const leader = isFirstActivation
-    ? getLeader(s.bpHistory.slice(-sHands, -1))   // son sHands elden ilk ikisi
-    : getLeader(s.bpHistory);                       // sonraki eller için tam geçmiş
+    ? getLeader(s.bpHistory.slice(-sHands, -1))   // setup: carry geçmiş dahil ilk 2 el
+    : getLeader(sessionBP);                         // aktif oyun: scoreboard ile aynı veri
 
   if (isFirstActivation) {
     s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
@@ -206,7 +207,7 @@ function processResult(result, s) {
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
       return { ...baseStatic, ...dynFields(), win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "observation", message: "3 kayıp — 3 el gözlem başlıyor" };
     }
-    s.currentSuggestion = getLeader(s.bpHistory);
+    s.currentSuggestion = getLeader(s.fullHistory.filter(r => r !== "T"));
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     const nextBet = roundBet(s.currentUnit * s.baseUnit);
     return { ...baseStatic, ...dynFields(), win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: `KAYIP -${betAmt}` };
