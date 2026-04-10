@@ -391,6 +391,11 @@ export default function App() {
                   <span style={{ color: aiData.side === "B" ? C.blue : aiData.side === "P" ? C.red : C.gray, fontWeight: "bold" }}>
                     {aiData.side === "B" ? "BANKER" : aiData.side === "P" ? "PLAYER" : "NÖTR"}
                   </span>
+                  {aiData.confidence && (
+                    <span style={{ color: aiData.confidence === "HIGH" ? C.green : aiData.confidence === "LOW" ? C.red : "#ffaa44", fontSize: 11, marginLeft: 4 }}>
+                      [{aiData.confidence}]
+                    </span>
+                  )}
                   {aiData.reason && <span style={{ color: C.gray }}> — {aiData.reason}</span>}
                 </span>
               ) : null}

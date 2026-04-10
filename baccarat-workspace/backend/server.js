@@ -123,9 +123,11 @@ function processResult(result, s) {
   s.updatedAt = new Date();
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
-  const tmax = s.targetMax != null ? fmt(s.targetMax) : null;
   const sHands = s.sessionHandCount || 0;
-  const base = { scoreboard, history, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: tmax, sessionHandCount: sHands };
+  // base: lossLevel/targetMax dinamik — applyLossLevel sonrası güncel değer için fn kullan
+  const baseStatic = { scoreboard, history, baseUnit: s.baseUnit, bankroll: s.bankroll, sessionHandCount: sHands };
+  const dynFields = () => ({ lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null });
+  const base = { ...baseStatic, ...dynFields() };
 
   // Gözlem modu
   if (s.phase === "observation") {
@@ -202,19 +204,19 @@ function processResult(result, s) {
     s.consecutiveLosses++;
     if (s.consecutiveLosses >= 3) {
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return { ...base, win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "observation", message: "3 kayıp — 3 el gözlem başlıyor" };
+      return { ...baseStatic, ...dynFields(), win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "observation", message: "3 kayıp — 3 el gözlem başlıyor" };
     }
     s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     const nextBet = roundBet(s.currentUnit * s.baseUnit);
-    return { ...base, win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: `KAYIP -${betAmt}` };
+    return { ...baseStatic, ...dynFields(), win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: `KAYIP -${betAmt}` };
   }
 }
 
 function drawCard() { const cards = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"]; return cards[Math.floor(Math.random() * cards.length)]; }
 function cardValue(c) { if (c === "A") return 1; if (["10","J","Q","K"].includes(c)) return 0; return Number(c); }
 function handScore(cards) { return cards.reduce((s, c) => s + cardValue(c), 0) % 10; }
-function newDemoSession() { return { bankroll: 100, baseUnit: 0.5, balance: 100, maxWin: 100, fullHistory: [], bpHistory: [], consecutiveLosses: 0, lossStep: 0, lossLevel: 0, targetMax: null, phase: "waiting", observationCount: 0, currentSuggestion: null, currentUnit: 1 }; }
+function newDemoSession() { return { bankroll: 100, baseUnit: 0.5, balance: 100, maxWin: 100, fullHistory: [], bpHistory: [], consecutiveLosses: 0, lossStep: 0, lossLevel: 0, targetMax: null, phase: "waiting", observationCount: 0, currentSuggestion: null, currentUnit: 1, sessionHandCount: 0 }; }
 let demoSession = newDemoSession();
 
 app.get("/", (req, res) => res.send("Backend running"));
@@ -399,12 +401,33 @@ app.post("/game/analysis", auth, async (req, res) => {
     if (!anthropic) return res.json({ ok: false, side: null, reason: "AI devre disi" });
     const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
-    const history = session.bpHistory.slice(-20);
-    if (history.length < 5) return res.json({ ok: false, side: null, reason: "Yeterli veri yok" });
-    const prompt = "Baccarat el analizi. Son " + history.length + " sonuc: " + history.join(",") + "\nBakiye: " + fmt(session.balance) + ", Bankroll: " + session.bankroll + ", Risk: L" + session.lossLevel + "\nSadece JSON: {\"side\":\"B\"|\"P\"|\"NEUTRAL\",\"reason\":\"max 8 kelime Turkce\"}";
-    const msg = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 80, messages: [{ role: "user", content: prompt }] });
+    const bp = session.bpHistory;
+    if (bp.length < 5) return res.json({ ok: false, side: null, reason: "Yeterli veri yok" });
+    const last20 = bp.slice(-20);
+    const last5 = bp.slice(-5);
+    const last10 = bp.slice(-10);
+    // Streak: son kaç el aynı taraf?
+    let streak = 1;
+    for (let i = bp.length - 2; i >= 0 && bp[i] === bp[bp.length - 1]; i--) streak++;
+    const streakSide = bp[bp.length - 1];
+    // Kısa/uzun vadeli oran
+    const bCount20 = last20.filter(x => x === "B").length;
+    const pCount20 = last20.length - bCount20;
+    const bCount5 = last5.filter(x => x === "B").length;
+    // Choppiness: son 10 elde kaç değişim?
+    let switches = 0;
+    for (let i = 1; i < last10.length; i++) if (last10[i] !== last10[i-1]) switches++;
+    const tableType = switches >= 7 ? "choppy(zigzag)" : switches <= 3 ? "streaky(seri)" : "karma";
+    const prompt =
+      `Baccarat masa analizi. Tablo tipi: ${tableType}. ` +
+      `Son 20 el: ${last20.join(",")}. ` +
+      `Son 20'de B:${bCount20} P:${pCount20}. Son 5'te B:${bCount5} P:${5-bCount5}. ` +
+      `Mevcut seri: ${streakSide} x${streak}. ` +
+      `Bakiye: ${fmt(session.balance)}, Bankroll: ${session.bankroll}, Risk seviyesi: L${session.lossLevel}. ` +
+      `Sadece JSON döndür: {"side":"B"|"P"|"NEUTRAL","reason":"max 8 kelime Turkce","confidence":"HIGH"|"MED"|"LOW"}`;
+    const msg = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 100, messages: [{ role: "user", content: prompt }] });
     const parsed = JSON.parse(msg.content[0].text.trim());
-    return res.json({ ok: true, side: parsed.side, reason: parsed.reason });
+    return res.json({ ok: true, side: parsed.side, reason: parsed.reason, confidence: parsed.confidence || "MED" });
   } catch (err) { return res.json({ ok: false, side: null, reason: null }); }
 });
 
