@@ -127,43 +127,27 @@ function processResult(result, s) {
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
   const sHands = s.sessionHandCount || 0;
-  // base: lossLevel/targetMax dinamik — applyLossLevel sonrası güncel değer için fn kullan
-  const baseStatic = { scoreboard, history, baseUnit: s.baseUnit, bankroll: s.bankroll, sessionHandCount: sHands };
-  const dynFields = () => ({ lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null });
-  const base = { ...baseStatic, ...dynFields() };
+  const base = { scoreboard, history, baseUnit: s.baseUnit, bankroll: s.bankroll, sessionHandCount: sHands, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+  const baseRounded = roundBet(s.baseUnit);
 
-  // Gözlem modu
-  if (s.phase === "observation") {
-    s.observationCount = (s.observationCount || 0) + 1;
-    if (s.observationCount >= 3) {
-      s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
-      s.currentSuggestion = getLeader(s.fullHistory.filter(r => r !== "T")); s.currentUnit = 1;
-    }
-    const ab = s.phase === "active" ? getBet(s.currentUnit, s.baseUnit) : null;
-    return { ...base, balance: fmt(s.balance), recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: ab, phase: s.phase, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor" };
-  }
-
-  // Setup: her yeni masada 3 BP el sonuç takibi yapılır, bahis değerlendirilmez
+  // Setup: 3 BP el bekleniyor
   if (!s.currentSuggestion && sHands < 3) {
     return { ...base, balance: fmt(s.balance), recommendation: null, unit: null, actualBet: null, phase: "waiting", message: `${3 - sHands} sonuc daha girin` };
   }
 
-  // TIE
+  // TIE: mevcut öneri devam eder, bahis değişmez
   if (r === "T") {
     return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentSuggestion ? getBet(s.currentUnit, s.baseUnit) : null, phase: s.phase, message: "TIE" };
   }
 
-  // İlk aktivasyon: setup ellerinin ilk 2'si ile öneri belirle (carry geçmişi dahil değil)
-  const isFirstActivation = !s.currentSuggestion;
-  const sessionBP = s.fullHistory.filter(r => r !== "T");
-  const leader = isFirstActivation
-    ? getLeader(s.bpHistory.slice(-sHands, -1))   // setup: carry geçmiş dahil ilk 2 el
-    : getLeader(sessionBP);                         // aktif oyun: scoreboard ile aynı veri
+  // Scoreboard lideri (mevcut session fullHistory bazlı)
+  const sessionBP = s.fullHistory.filter(x => x !== "T");
+  const leader = getLeader(sessionBP);
 
-  if (isFirstActivation) {
-    s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
-    const ab = getBet(s.currentUnit, s.baseUnit);
-    return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: ab, phase: "active", message: "Sistem hazır — ilk bahis: " + s.currentSuggestion };
+  // İlk aktivasyon: 3. elde sistem başlatılır
+  if (!s.currentSuggestion) {
+    s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.consecutiveLosses = 0;
+    return { ...base, balance: fmt(s.balance), recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: getBet(1, s.baseUnit), phase: "active", message: "Sistem hazır — ilk bahis: " + s.currentSuggestion };
   }
 
   // Bahis değerlendirme
@@ -173,49 +157,42 @@ function processResult(result, s) {
   const handEntry = { handNo: s.handLog.length + 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: betAmt, result: r, win, phase: s.phase, timestamp: new Date() };
 
   if (win) {
-    // Banker kazancında %5 komisyon
+    // Banker komisyonu %5
     const commission = s.currentSuggestion === "B" ? fmt(betAmt * 0.05) : 0;
     const payout = fmt(betAmt - commission);
     s.balance = fmt(s.balance + payout);
-    handEntry.commission = commission;
-    handEntry.payout = payout;
-    handEntry.balanceAfter = s.balance;
+    handEntry.commission = commission; handEntry.payout = payout; handEntry.balanceAfter = s.balance;
     s.handLog.push(handEntry);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
-    const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
-    const msg = `KAZANÇ +${payout}${commMsg}`;
-    s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    const baseTarget = inBarrier ? s.targetMax : s.maxWin;
-    const baseRounded = roundBet(s.baseUnit);
-    let target = baseTarget + baseRounded;
-    const payoutPerUnit = s.currentSuggestion === "B" ? baseRounded * 0.95 : baseRounded;
+    applyLossLevel(s);
+
+    // Game over: bankroll + 2 birim kazanıldıysa
+    const gameOverTarget = s.bankroll + 2 * baseRounded;
+    if (s.balance >= gameOverTarget) {
+      s.phase = "gameover";
+      return { ...base, gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "gameover", lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null, message: `GAME OVER! +2 birim hedefine ulaşıldı!` };
+    }
+
+    // Kazanç sonrası: consecutiveLosses sıfırla, maxWin+1 birim hedefine göre birim hesapla
+    s.consecutiveLosses = 0;
+    s.currentSuggestion = leader;
+    const payoutPerUnit = leader === "B" ? baseRounded * 0.95 : baseRounded;
+    const target = s.maxWin + baseRounded;
     let nextUnit = Math.ceil((target - s.balance) / payoutPerUnit);
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
-    const nextBet = getBet(s.currentUnit, s.baseUnit);
-    const gameOverTarget = inBarrier ? s.targetMax + 2 * baseRounded : s.bankroll + 2 * baseRounded;
-    if (s.balance >= gameOverTarget) {
-      s.phase = "gameover";
-      return { ...base, gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "gameover", message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})` };
-    }
-    return { ...base, win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: msg };
+    const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
+    return { ...base, win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: getBet(s.currentUnit, s.baseUnit), balance: fmt(s.balance), phase: "active", lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null, message: `KAZANÇ +${payout}${commMsg}` };
   } else {
+    // Kayıp: birim basamağı artar (1.kayıp=2x, 2.kayıp=3x, ...)
     s.balance = fmt(s.balance - betAmt);
-    handEntry.commission = 0;
-    handEntry.payout = -betAmt;
-    handEntry.balanceAfter = s.balance;
+    handEntry.commission = 0; handEntry.payout = -betAmt; handEntry.balanceAfter = s.balance;
     s.handLog.push(handEntry);
     applyLossLevel(s);
     s.consecutiveLosses++;
-    if (s.consecutiveLosses >= 3) {
-      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return { ...baseStatic, ...dynFields(), win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "observation", message: "3 kayıp — 3 el gözlem başlıyor" };
-    }
-    s.currentSuggestion = getLeader(s.fullHistory.filter(r => r !== "T"));
+    s.currentSuggestion = leader;
     s.currentUnit = s.consecutiveLosses + 1;
-    const nextBet = getBet(s.currentUnit, s.baseUnit);
-    return { ...baseStatic, ...dynFields(), win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: nextBet, balance: fmt(s.balance), phase: "active", message: `KAYIP -${betAmt}` };
+    return { ...base, win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: getBet(s.currentUnit, s.baseUnit), balance: fmt(s.balance), phase: "active", lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null, message: `KAYIP -${betAmt}` };
   }
 }
 
