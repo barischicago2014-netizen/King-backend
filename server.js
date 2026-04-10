@@ -176,22 +176,21 @@ function processResult(result, s) {
     // Kazanç sonrası: consecutiveLosses sıfırla, maxWin+1 birim hedefine göre birim hesapla
     s.consecutiveLosses = 0;
     s.currentSuggestion = leader;
-    const payoutPerUnit = leader === "B" ? baseRounded * 0.95 : baseRounded;
-    const target = s.maxWin + baseRounded;
-    let nextUnit = Math.ceil((target - s.balance) / payoutPerUnit);
+    const needed = s.maxWin + baseRounded - s.balance;
+    let nextUnit = needed > 0 ? Math.ceil(needed / baseRounded) : 1;
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
     const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
     return { ...base, win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: getBet(s.currentUnit, s.baseUnit), balance: fmt(s.balance), phase: "active", lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null, message: `KAZANÇ +${payout}${commMsg}` };
   } else {
-    // Kayıp: birim basamağı artar (1.kayıp=2x, 2.kayıp=3x, ...)
+    // Kayıp: 1.kayıp=2 birim, 2.kayıp ve sonrası=1 birim (sabit)
     s.balance = fmt(s.balance - betAmt);
     handEntry.commission = 0; handEntry.payout = -betAmt; handEntry.balanceAfter = s.balance;
     s.handLog.push(handEntry);
     applyLossLevel(s);
     s.consecutiveLosses++;
     s.currentSuggestion = leader;
-    s.currentUnit = s.consecutiveLosses + 1;
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     return { ...base, win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: getBet(s.currentUnit, s.baseUnit), balance: fmt(s.balance), phase: "active", lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null, message: `KAYIP -${betAmt}` };
   }
 }
