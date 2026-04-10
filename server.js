@@ -166,18 +166,25 @@ function processResult(result, s) {
     if (s.balance > s.maxWin) s.maxWin = s.balance;
     applyLossLevel(s);
 
-    // Game over: bankroll + 2 birim kazanıldıysa
-    const gameOverTarget = s.bankroll + 2 * baseRounded;
+    // Baraj / game over hedefi:
+    // Baraj varsa (targetMax set): hedef = targetMax + 2*base
+    // Baraj yoksa: hedef = bankroll + 2*base
+    const inBarrier = s.targetMax !== null;
+    const gameOverTarget = inBarrier ? fmt(s.targetMax) + 2 * baseRounded : s.bankroll + 2 * baseRounded;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { ...base, gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), phase: "gameover", lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null, message: `GAME OVER! +2 birim hedefine ulaşıldı!` };
     }
 
-    // Kazanç sonrası: consecutiveLosses sıfırla, maxWin+1 birim hedefine göre birim hesapla
+    // Kazanç sonrası: loss adımını sıfırla, recovery birim hesapla
+    // Recovery hedef: baraj varsa targetMax+1base, yoksa maxWin+1base
+    // Banker komisyonunu hesaba kat: payout_per_unit = base*0.95 (B) veya base (P)
     s.consecutiveLosses = 0;
     s.currentSuggestion = leader;
-    const needed = s.maxWin + baseRounded - s.balance;
-    let nextUnit = needed > 0 ? Math.ceil(needed / baseRounded) : 1;
+    const recoveryBase = inBarrier ? fmt(s.targetMax) : s.maxWin;
+    const payoutPerUnit = leader === "B" ? baseRounded * 0.95 : baseRounded;
+    const needed = recoveryBase + baseRounded - s.balance;
+    let nextUnit = needed > 0 ? Math.ceil(needed / payoutPerUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
     s.currentUnit = nextUnit;
     const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
