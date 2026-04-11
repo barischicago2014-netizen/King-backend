@@ -341,6 +341,42 @@ app.get("/admin/export-csv", async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "CSV alinamadi", error: err.message }); }
 });
 
+// Kullanıcı kendi oyun raporunu CSV olarak indirir
+function toLocalTime(date, offsetHours = 3) {
+  if (!date) return "-";
+  const d = new Date(date.getTime() + offsetHours * 3600000);
+  return d.toISOString().slice(0, 16).replace("T", " ");
+}
+
+app.get("/game/export", auth, async (req, res) => {
+  try {
+    const sessions = await Session.find({ userId: req.user.id }).sort({ startedAt: -1 }).limit(50);
+    const rows = ["\uFEFFOyuncu,Oturum,Tarih(TR),Sure(dk),Bankroll,Birim,MaxWin,Son Bakiye,El No,Oneri,Birim Katsayi,Bahis,Sonuc,Komisyon,Net Kazanc/Kayip,Bakiye Sonrasi,Faz"];
+    for (const s of sessions) {
+      const start = toLocalTime(s.startedAt);
+      const end = toLocalTime(s.updatedAt);
+      const durMin = s.startedAt && s.updatedAt ? Math.round((s.updatedAt - s.startedAt) / 60000) : "-";
+      const sid = String(s._id).slice(-6);
+      const user = s.username || String(s.userId).slice(-6);
+      const maxWin = fmt(s.maxWin || s.bankroll);
+      const finalBal = fmt(s.balance);
+      if (!s.handLog || s.handLog.length === 0) {
+        rows.push(`${user},${sid},${start},${durMin},${s.bankroll},${s.baseUnit},${maxWin},${finalBal},,,,,,,,`);
+      } else {
+        for (const h of s.handLog) {
+          const hTime = toLocalTime(h.timestamp);
+          const comm = h.commission != null ? h.commission : 0;
+          const net = h.win ? `+${h.payout ?? h.betAmount}` : `-${h.betAmount}`;
+          rows.push(`${user},${sid},${hTime},${durMin},${s.bankroll},${s.baseUnit},${maxWin},${finalBal},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${comm},${net},${h.balanceAfter ?? ""},${h.phase}`);
+        }
+      }
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="rapor-${req.user.username}-${new Date().toISOString().slice(0,10)}.csv"`);
+    return res.send(rows.join("\n"));
+  } catch (err) { return res.status(500).json({ message: "Export basarisiz", error: err.message }); }
+});
+
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
 app.post("/game/analysis", auth, async (req, res) => {

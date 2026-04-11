@@ -409,6 +409,7 @@ export default function App() {
               <div style={{ color: C.green, fontSize: 20, marginBottom: 8 }}>Bakiye: {gs.balance?.toFixed(2)}</div>
               <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>Yeni birim: {gs.balance ? (gs.balance * 0.005).toFixed(2) : "—"}</div>
               <button style={{ ...S.btnGold, marginBottom: 12 }} onClick={resetGame} disabled={loading}>{loading ? "..." : "Yeniden Oyna"}</button>
+              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300, marginBottom: 10 }} onClick={() => { const a = document.createElement("a"); a.href = `${api.defaults.baseURL}/game/export`; a.setAttribute("download", ""); const token = localStorage.getItem("bac_token"); fetch(a.href, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.blob()).then(b => { a.href = URL.createObjectURL(b); a.click(); }); }}>Rapor İndir (CSV)</button>
               <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Çıkış Yap</button>
             </div>
           ) : (
