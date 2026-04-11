@@ -63,7 +63,7 @@ export default function App() {
     if (!form.username.trim() || !form.password.trim()) { setFormError("Kullanıcı adı ve şifre gerekli"); return; }
     setLoading(true);
     try {
-      const res = await api.post("/login", form);
+      const res = await api.post("/login", { ...form, termsAccepted });
       localStorage.setItem("bac_token", res.data.token);
       localStorage.setItem("bac_user", res.data.username);
       setUser({ token: res.data.token, username: res.data.username });

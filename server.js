@@ -31,6 +31,9 @@ const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true, lowercase: true },
   password: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
+  termsAcceptedAt: { type: Date, default: null },
+  termsAcceptedIp: { type: String, default: null },
+  termsVersion: { type: String, default: null },
 });
 const User = mongoose.model("User", UserSchema);
 
@@ -288,14 +291,22 @@ app.get("/", (req, res) => res.send("Backend running"));
 
 app.post("/login", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, termsAccepted } = req.body;
     if (!username || !password) return res.status(400).json({ message: "Kullanici adi ve sifre gerekli" });
     const user = await User.findOne({ username: username.toLowerCase() });
     if (!user) return res.status(400).json({ message: "Kullanici bulunamadi" });
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(400).json({ message: "Sifre yanlis" });
+    // Terms of Use kabulunu kaydet
+    if (termsAccepted) {
+      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+      user.termsAcceptedAt = new Date();
+      user.termsAcceptedIp = ip;
+      user.termsVersion = "2026-04-11";
+      await user.save();
+    }
     const token = jwt.sign({ id: String(user._id), username: user.username }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, username: user.username });
+    return res.json({ token, username: user.username, termsAccepted: !!user.termsAcceptedAt });
   } catch (err) { return res.status(500).json({ message: "Giris basarisiz", error: err.message }); }
 });
 
@@ -396,17 +407,36 @@ app.get("/admin/report", async (req, res) => {
   const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   try {
+    const users = await User.find().sort({ createdAt: -1 });
     const sessions = await Session.find().sort({ updatedAt: -1 });
-    const userMap = {};
+    const sessionMap = {};
     for (const s of sessions) {
       const key = s.username || String(s.userId);
-      if (!userMap[key]) userMap[key] = { username: s.username || "-", sessions: 0, totalHands: 0, lastBalance: 0, lastBankroll: 0, lastActive: null, bestBalance: 0 };
-      const u = userMap[key];
+      if (!sessionMap[key]) sessionMap[key] = { sessions: 0, totalHands: 0, lastBalance: 0, lastBankroll: 0, lastActive: null, bestBalance: 0 };
+      const u = sessionMap[key];
       u.sessions++; u.totalHands += s.fullHistory.length;
       if (!u.lastActive || s.updatedAt > u.lastActive) { u.lastActive = s.updatedAt; u.lastBalance = fmt(s.balance); u.lastBankroll = s.bankroll; }
       if (s.balance > u.bestBalance) u.bestBalance = fmt(s.balance);
     }
-    const players = Object.values(userMap).map((u) => ({ ...u, pnl: fmt(u.lastBalance - u.lastBankroll), lastActive: u.lastActive ? u.lastActive.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-" }));
+    const toCST = (d) => d ? d.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-";
+    const players = users.map((u) => {
+      const s = sessionMap[u.username] || { sessions: 0, totalHands: 0, lastBalance: 0, lastBankroll: 0, lastActive: null, bestBalance: 0 };
+      return {
+        username: u.username,
+        createdAt: toCST(u.createdAt),
+        termsAccepted: u.termsAcceptedAt ? "YES" : "NO",
+        termsAcceptedAt: toCST(u.termsAcceptedAt),
+        termsAcceptedIp: u.termsAcceptedIp || "-",
+        termsVersion: u.termsVersion || "-",
+        sessions: s.sessions,
+        totalHands: s.totalHands,
+        lastBalance: s.lastBalance,
+        lastBankroll: s.lastBankroll,
+        pnl: fmt(s.lastBalance - s.lastBankroll),
+        bestBalance: s.bestBalance,
+        lastActive: toCST(s.lastActive),
+      };
+    });
     return res.json({ totalPlayers: players.length, totalSessions: sessions.length, players });
   } catch (err) { return res.status(500).json({ message: "Rapor alinamadi", error: err.message }); }
 });
