@@ -148,14 +148,15 @@ function processResult(result, s) {
     const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
     const msg = `KAZANÇ +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    // Baraj modundaysak: targetMax + 1 birim, Normal moddaysak: maxWin + 1 birim
-    const baseTarget = inBarrier ? s.targetMax : s.maxWin;
+    // Baraj aktifse targetMax'ı hedef al, yoksa maxWin
+    const baseTarget = s.targetMax !== null ? s.targetMax : s.maxWin;
     let target = baseTarget + s.baseUnit;
     let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
     if (nextUnit < 1) nextUnit = 1;
+    if (nextUnit > 5) nextUnit = 5; // Maks 5 birim — recovery beti kontrolsüz büyümesin
     s.currentUnit = nextUnit;
-    // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2 (sabit hedef)
-    const gameOverTarget = inBarrier ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
+    // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2
+    const gameOverTarget = s.targetMax !== null ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
