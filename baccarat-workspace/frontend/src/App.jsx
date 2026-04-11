@@ -134,7 +134,7 @@ export default function App() {
       });
       setSimResult(res.data);
     } catch (err) {
-      setSimResult({ error: err.response?.data?.message || "Hata oluştu" });
+      setSimResult({ error: err.response?.data?.message || err.message || "Sunucuya ulaşılamadı" });
     } finally { setSimLoading(false); }
   }
 
