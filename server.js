@@ -148,12 +148,12 @@ function processResult(result, s) {
     const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
     const msg = `KAZANÇ +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    // Baraj aktifse targetMax'ı hedef al, yoksa maxWin
+    // Baraj aktifse targetMax'ı hedef al, yoksa maxWin — tek elde maxWin+1 birime ulaş
     const baseTarget = s.targetMax !== null ? s.targetMax : s.maxWin;
-    let target = baseTarget + s.baseUnit;
-    let nextUnit = Math.ceil((target - s.balance) / s.baseUnit);
+    const gap = baseTarget + s.baseUnit - s.balance;
+    let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
-    if (nextUnit > 5) nextUnit = 5; // Maks 5 birim — recovery beti kontrolsüz büyümesin
+    if (nextUnit > 5) nextUnit = 5;
     s.currentUnit = nextUnit;
     // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2
     const gameOverTarget = s.targetMax !== null ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
