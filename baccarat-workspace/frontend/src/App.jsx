@@ -22,7 +22,7 @@ const S = {
 btnGhost: { padding: "9px 20px", fontSize: 13, backgroundColor: "transparent", color: C.gray, border: `1px solid ${C.dark}`, borderRadius: 6, cursor: "pointer" },
   input: { width: "100%", padding: "12px 14px", fontSize: 16, backgroundColor: C.bg, color: C.white, border: `1px solid ${C.border}`, borderRadius: 6, boxSizing: "border-box", outline: "none" },
   scoreboard: { display: "flex", gap: 20, backgroundColor: C.card, padding: "14px 32px", borderRadius: 12, textAlign: "center", border: `1px solid ${C.border}`, width: "100%", justifyContent: "center" },
-  recBox: { backgroundColor: C.card, padding: "20px 32px", borderRadius: 14, textAlign: "center", border: `2px solid ${C.gold}`, width: "100%" },
+  recBox: { backgroundColor: C.card, padding: "20px 32px", borderRadius: 14, textAlign: "center", border: `2px solid ${C.gold}`, width: "100%", minHeight: 120, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" },
 };
 
 export default function App() {
