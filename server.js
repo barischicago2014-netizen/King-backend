@@ -307,7 +307,7 @@ app.get("/admin/report", async (req, res) => {
       if (!u.lastActive || s.updatedAt > u.lastActive) { u.lastActive = s.updatedAt; u.lastBalance = fmt(s.balance); u.lastBankroll = s.bankroll; }
       if (s.balance > u.bestBalance) u.bestBalance = fmt(s.balance);
     }
-    const players = Object.values(userMap).map((u) => ({ ...u, pnl: fmt(u.lastBalance - u.lastBankroll), lastActive: u.lastActive ? u.lastActive.toISOString().slice(0, 16).replace("T", " ") : "-" }));
+    const players = Object.values(userMap).map((u) => ({ ...u, pnl: fmt(u.lastBalance - u.lastBankroll), lastActive: u.lastActive ? u.lastActive.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-" }));
     return res.json({ totalPlayers: players.length, totalSessions: sessions.length, players });
   } catch (err) { return res.status(500).json({ message: "Rapor alinamadi", error: err.message }); }
 });
@@ -319,8 +319,8 @@ app.get("/admin/export-csv", async (req, res) => {
     const sessions = await Session.find().sort({ startedAt: -1 });
     const rows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Oneri,Birim,Bahis Tutari,Sonuc,Kazanc/Kayip,Bakiye,Faz"];
     for (const s of sessions) {
-      const start = s.startedAt ? s.startedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
-      const end = s.updatedAt ? s.updatedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
+      const start = s.startedAt ? s.startedAt.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-";
+      const end = s.updatedAt ? s.updatedAt.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-";
       const durMin = s.startedAt && s.updatedAt ? Math.round((s.updatedAt - s.startedAt) / 60000) : "-";
       const sessionId = String(s._id).slice(-6);
       const user = s.username || String(s.userId).slice(-6);
@@ -328,7 +328,7 @@ app.get("/admin/export-csv", async (req, res) => {
         rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},,,,,,,,`);
       } else {
         for (const h of s.handLog) {
-          const hTime = h.timestamp ? h.timestamp.toISOString().slice(0, 16).replace("T", " ") : "-";
+          const hTime = h.timestamp ? h.timestamp.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-";
           const wl = h.win ? `+${h.betAmount}` : `-${h.betAmount}`;
           rows.push(`${user},${sessionId},${start},${end},${durMin},${s.bankroll},${s.baseUnit},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${wl},${h.balanceAfter},${h.phase}`);
         }
@@ -342,10 +342,9 @@ app.get("/admin/export-csv", async (req, res) => {
 });
 
 // Kullanıcı kendi oyun raporunu CSV olarak indirir
-function toLocalTime(date, offsetHours = 3) {
+function toLocalTime(date) {
   if (!date) return "-";
-  const d = new Date(date.getTime() + offsetHours * 3600000);
-  return d.toISOString().slice(0, 16).replace("T", " ");
+  return date.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "");
 }
 
 app.get("/game/export", auth, async (req, res) => {
@@ -399,8 +398,8 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 async function buildCsvContent(sessions) {
   const csvRows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Oneri,Birim,Bahis Tutari,Sonuc,Kazanc/Kayip,Bakiye,Faz"];
   for (const s of sessions) {
-    const start = s.startedAt ? s.startedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
-    const end = s.updatedAt ? s.updatedAt.toISOString().slice(0, 16).replace("T", " ") : "-";
+    const start = s.startedAt ? s.startedAt.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-";
+    const end = s.updatedAt ? s.updatedAt.toLocaleString("tr-TR", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(",", "") : "-";
     const durMin = s.startedAt && s.updatedAt ? Math.round((s.updatedAt - s.startedAt) / 60000) : "-";
     const sessionId = String(s._id).slice(-6);
     const user = s.username || String(s.userId).slice(-6);
