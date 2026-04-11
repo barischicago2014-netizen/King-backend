@@ -271,17 +271,17 @@ function runSimulation(bankroll, tables, targetUnits) {
     tableResults.push({ result, profit, balance: fmt(balance), lossLevel });
   }
   const losses = tables - wins - busts - timeouts;
-  return { tables, bankroll, targetUnits, baseUnit: fmt(bankroll * 0.005), wins, busts, timeouts, losses, winRate: fmt((wins / tables) * 100), totalProfit: fmt(totalProfit), avgProfit: fmt(totalProfit / tables), avgHands: Math.round(totalHands / tables), worstBalance: fmt(worstBalance), bestProfit: fmt(bestProfit), lossLevelCounts, tableResults };
+  return { tables, bankroll, targetUnits, baseUnit: fmt(bankroll * 0.005), wins, busts, timeouts, losses, winRate: fmt((wins / tables) * 100), totalProfit: fmt(totalProfit), avgProfit: fmt(totalProfit / tables), avgHands: Math.round(totalHands / tables), worstBalance: fmt(worstBalance), bestProfit: fmt(bestProfit), lossLevelCounts };
 }
 
 app.post("/game/simulate", (req, res) => {
   try {
     const bankroll = Math.max(10, Number(req.body.bankroll) || 1000);
     const tables = Math.min(Math.max(1, Number(req.body.tables) || 200), 2000);
-    const targetUnits = Math.max(1, Number(req.body.targetUnits) || 5);
+    const targetUnits = Math.max(1, Number(req.body.targetUnits) || 2);
     const result = runSimulation(bankroll, tables, targetUnits);
     return res.json(result);
-  } catch (err) { return res.status(500).json({ message: "Simulasyon hatası", error: err.message }); }
+  } catch (err) { console.error("Simulate error:", err); return res.status(500).json({ message: "Simulasyon hatası", error: err.message, stack: err.stack }); }
 });
 
 app.get("/", (req, res) => res.send("Backend running"));
