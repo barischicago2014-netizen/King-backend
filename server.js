@@ -135,14 +135,18 @@ function processResult(result, s) {
   const win = r === s.currentSuggestion;
   const handEntry = { handNo: s.handLog ? s.handLog.length + 1 : 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: fmt(s.currentUnit * s.baseUnit), result: r, win, phase: s.phase, timestamp: new Date() };
   if (win) {
-    s.balance = fmt(s.balance + s.currentUnit * s.baseUnit);
+    const grossWin = fmt(s.currentUnit * s.baseUnit);
+    const commission = s.currentSuggestion === "B" ? fmt(grossWin * 0.05) : 0;
+    const netWin = fmt(grossWin - commission);
+    s.balance = fmt(s.balance + netWin);
+    handEntry.commission = commission;
+    handEntry.payout = netWin;
     handEntry.balanceAfter = s.balance;
     if (s.handLog) s.handLog.push(handEntry);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
-    // Baraj kontrolü: targetMax set edilmişse VE maxWin'den küçükse → barajdayız
-    // NOT: applyLossLevel win'de çağrılmaz — baraj bir kez set olduktan sonra game over'a kadar sabit kalır
     const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
-    const msg = `KAZANÇ +${s.currentUnit} birim (+${fmt(s.currentUnit * s.baseUnit)})`;
+    const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
+    const msg = `KAZANÇ +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
     // Baraj modundaysak: targetMax + 1 birim, Normal moddaysak: maxWin + 1 birim
     const baseTarget = inBarrier ? s.targetMax : s.maxWin;
