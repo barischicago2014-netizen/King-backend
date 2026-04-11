@@ -19,15 +19,14 @@ const S = {
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", backgroundColor: C.card, borderBottom: `1px solid ${C.border}` },
   content: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 16px", gap: 16, maxWidth: 480, margin: "0 auto", width: "100%" },
   btnGold: { padding: "14px 0", width: "100%", maxWidth: 300, fontSize: 17, fontWeight: "bold", backgroundColor: C.gold, color: "#000", border: "none", borderRadius: 8, cursor: "pointer" },
-  btnOutline: { padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer" },
-  btnGhost: { padding: "9px 20px", fontSize: 13, backgroundColor: "transparent", color: C.gray, border: `1px solid ${C.dark}`, borderRadius: 6, cursor: "pointer" },
+btnGhost: { padding: "9px 20px", fontSize: 13, backgroundColor: "transparent", color: C.gray, border: `1px solid ${C.dark}`, borderRadius: 6, cursor: "pointer" },
   input: { width: "100%", padding: "12px 14px", fontSize: 16, backgroundColor: C.bg, color: C.white, border: `1px solid ${C.border}`, borderRadius: 6, boxSizing: "border-box", outline: "none" },
   scoreboard: { display: "flex", gap: 20, backgroundColor: C.card, padding: "14px 32px", borderRadius: 12, textAlign: "center", border: `1px solid ${C.border}`, width: "100%", justifyContent: "center" },
   recBox: { backgroundColor: C.card, padding: "20px 32px", borderRadius: 14, textAlign: "center", border: `2px solid ${C.gold}`, width: "100%" },
 };
 
 export default function App() {
-  const [screen, setScreen] = useState("landing"); // landing | login | bankroll | demo | game
+  const [screen, setScreen] = useState("landing"); // landing | login | bankroll | game
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ username: "", password: "" });
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -37,14 +36,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [gs, setGs] = useState(null);
   const [sessionId, setSessionId] = useState(null);
-  const [dealCards, setDealCards] = useState(null);
   const [lastResult, setLastResult] = useState(null);
   const [flash, setFlash] = useState(null);
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [simInput, setSimInput] = useState({ bankroll: "1000", tables: "200", targetUnits: "2" });
-  const [simResult, setSimResult] = useState(null);
-  const [simLoading, setSimLoading] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -86,7 +81,6 @@ export default function App() {
       setGs(res.data);
       setSessionId(res.data.sessionId || null);
       setLastResult(null);
-      setDealCards(null);
       setBankrollInput("");
       setScreen("game");
     } catch (err) {
@@ -101,43 +95,6 @@ export default function App() {
     localStorage.removeItem("bac_user");
     setUser(null); setGs(null); setLastResult(null);
     setScreen("landing");
-  }
-
-  async function startDemo() {
-    setLoading(true);
-    try {
-      await api.post("/demo/reset");
-      setGs({ balance: 100, bankroll: 100, baseUnit: 0.5, scoreboard: { B: 0, P: 0, T: 0 }, phase: "waiting", history: [], recommendation: null, unit: null, message: "Kart çekmek için dokun" });
-      setDealCards(null); setLastResult(null); setScreen("demo");
-    } finally { setLoading(false); }
-  }
-
-  async function demoDeal() {
-    if (loading || gs?.gameOver) return;
-    setLoading(true);
-    try {
-      const res = await api.post("/demo/deal");
-      setDealCards(res.data.cards);
-      setLastResult(res.data.result);
-      setGs((prev) => ({ ...prev, ...res.data }));
-      if (res.data.win === true) showFlash(`+${res.data.actualBet || res.data.unit}`, C.green);
-      else if (res.data.win === false) showFlash(`-${res.data.actualBet || res.data.unit}`, C.red);
-    } finally { setLoading(false); }
-  }
-
-  async function runSim() {
-    setSimLoading(true);
-    setSimResult(null);
-    try {
-      const res = await api.post("/game/simulate", {
-        bankroll: parseFloat(simInput.bankroll) || 1000,
-        tables: parseInt(simInput.tables) || 200,
-        targetUnits: parseInt(simInput.targetUnits) || 5,
-      });
-      setSimResult(res.data);
-    } catch (err) {
-      setSimResult({ error: err.response?.data?.message || err.message || "Sunucuya ulaşılamadı" });
-    } finally { setSimLoading(false); }
   }
 
   async function triggerAi() {
@@ -239,8 +196,6 @@ export default function App() {
           <h1 style={{ fontSize: 42, color: C.gold, margin: "0 0 8px", letterSpacing: 2 }}>BACCARAT</h1>
           <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strateji Sistemi</p>
           <button style={{ ...S.btnGold, marginBottom: 14 }} onClick={() => setScreen("login")}>Giriş Yap</button>
-          <button style={{ ...S.btnOutline, marginBottom: 14 }} onClick={startDemo} disabled={loading}>{loading ? "..." : "Demo Oyna"}</button>
-          <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={() => { setSimResult(null); setScreen("simulation"); }}>Simülasyon</button>
         </div>
       </div>
     );
@@ -305,170 +260,6 @@ export default function App() {
             <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Çıkış</button>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  // ═══ SİMÜLASYON ═════════════════════════════════════
-  if (screen === "simulation") {
-    const sr = simResult;
-    const pcts = [0, 10, 20, 30, 40, 50, 60, 70, 80];
-    return (
-      <div style={S.page}>
-        <div style={S.header}>
-          <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Geri</button>
-          <span style={{ color: C.gold, fontWeight: "bold", letterSpacing: 1 }}>SİMÜLASYON</span>
-          <div style={{ width: 60 }} />
-        </div>
-        <div style={{ ...S.content, gap: 12 }}>
-          {/* Ayarlar */}
-          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, width: "100%" }}>
-            <div style={{ color: C.gold, fontWeight: "bold", marginBottom: 12, fontSize: 13, letterSpacing: 1 }}>PARAMETRELER</div>
-            <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-              {[
-                { label: "Bankroll ($)", key: "bankroll" },
-                { label: "Masa Sayısı", key: "tables" },
-                { label: "Hedef (birim)", key: "targetUnits" },
-              ].map(({ label, key }) => (
-                <div key={key} style={{ flex: 1 }}>
-                  <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>{label}</div>
-                  <input
-                    style={{ ...S.input, fontSize: 15, textAlign: "center", padding: "8px 6px" }}
-                    type="number"
-                    value={simInput[key]}
-                    onChange={(e) => setSimInput((p) => ({ ...p, [key]: e.target.value }))}
-                  />
-                </div>
-              ))}
-            </div>
-            <div style={{ color: C.gray, fontSize: 11, marginBottom: 10, textAlign: "center" }}>
-              Birim: ${((parseFloat(simInput.bankroll) || 0) * 0.005).toFixed(2)} &nbsp;|&nbsp;
-              Hedef kâr/masa: ${(((parseFloat(simInput.bankroll) || 0) * 0.005) * (parseInt(simInput.targetUnits) || 0)).toFixed(2)}
-            </div>
-            <button
-              style={{ ...S.btnGold, fontSize: 16, padding: "12px 0" }}
-              onClick={runSim}
-              disabled={simLoading}
-            >
-              {simLoading ? "Oynanıyor..." : "▶ Simülasyonu Başlat"}
-            </button>
-          </div>
-
-          {/* Sonuçlar */}
-          {sr && !sr.error && (
-            <>
-              <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, width: "100%" }}>
-                <div style={{ color: C.gold, fontWeight: "bold", marginBottom: 12, fontSize: 13, letterSpacing: 1 }}>SONUÇLAR — {sr.tables} MASA</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  {[
-                    { label: "Kazanan Masa", value: `${sr.wins} (%${sr.winRate})`, color: C.green },
-                    { label: "Kaybeden Masa", value: `${sr.losses}`, color: C.red },
-                    { label: "Bust (-%80)", value: `${sr.busts}`, color: "#ff8844" },
-                    { label: "Timeout", value: `${sr.timeouts}`, color: C.gray },
-                    { label: "Toplam Kâr/Zarar", value: `$${sr.totalProfit}`, color: sr.totalProfit >= 0 ? C.green : C.red },
-                    { label: "Masa Başı Ort.", value: `$${sr.avgProfit}`, color: sr.avgProfit >= 0 ? C.green : C.red },
-                    { label: "Ort. El Sayısı", value: sr.avgHands, color: C.white },
-                    { label: "En İyi Kâr", value: `$${sr.bestProfit}`, color: C.green },
-                    { label: "En Kötü Bakiye", value: `$${sr.worstBalance}`, color: "#ff8844" },
-                    { label: "Günlük %20 için", value: `${Math.ceil((sr.bankroll * 0.2) / ((sr.targetUnits * sr.baseUnit) || 1))} masa`, color: C.gold },
-                  ].map(({ label, value, color }) => (
-                    <div key={label} style={{ backgroundColor: "#0a2a16", borderRadius: 8, padding: "10px 12px" }}>
-                      <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>{label}</div>
-                      <div style={{ color, fontWeight: "bold", fontSize: 15 }}>{value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Baraj dağılımı */}
-              <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, width: "100%" }}>
-                <div style={{ color: C.gold, fontWeight: "bold", marginBottom: 10, fontSize: 13, letterSpacing: 1 }}>BARAJ DAĞILIMI</div>
-                {sr.lossLevelCounts.map((count, i) => {
-                  const pct = sr.tables > 0 ? ((count / sr.tables) * 100).toFixed(1) : 0;
-                  const barWidth = sr.tables > 0 ? (count / sr.tables) * 100 : 0;
-                  const label = i === 0 ? "Barajsız" : `L${i} (-%${pcts[i]})`;
-                  return (
-                    <div key={i} style={{ marginBottom: 6 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 }}>
-                        <span style={{ color: i === 0 ? C.green : "#ff8844" }}>{label}</span>
-                        <span style={{ color: C.white }}>{count} masa (%{pct})</span>
-                      </div>
-                      <div style={{ backgroundColor: "#0a2a16", borderRadius: 4, height: 6 }}>
-                        <div style={{ width: `${barWidth}%`, backgroundColor: i === 0 ? C.green : "#ff8844", height: "100%", borderRadius: 4 }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-          {sr?.error && (
-            <div style={{ color: C.red, textAlign: "center", padding: 20 }}>{sr.error}</div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ═══ DEMO ═══════════════════════════════════════════
-  if (screen === "demo") {
-    const sc = gs?.scoreboard || { B: 0, P: 0, T: 0 };
-    const demoTarget = gs?.targetMax ?? (gs?.bankroll != null ? gs.bankroll + 3 * (gs.baseUnit ?? 0.5) : 101.5);
-    return (
-      <div style={S.page}>
-        <div style={S.header}>
-          <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Geri</button>
-          <span style={{ color: C.gold, fontWeight: "bold", letterSpacing: 1 }}>DEMO MODU</span>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>{gs?.balance?.toFixed(2) ?? "100.00"}</div>
-            <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{demoTarget.toFixed(2)}</span>{gs?.lossLevel > 0 ? <span style={{ color: "#ff8844" }}> L{gs.lossLevel}</span> : null}</div>
-          </div>
-        </div>
-        <div style={S.content}>
-          <ScoreboardBlock sc={sc} />
-          {dealCards && (
-            <div style={{ display: "flex", gap: 12, width: "100%" }}>
-              {[{ label: "PLAYER", data: dealCards.player, color: C.red }, { label: "BANKER", data: dealCards.banker, color: C.blue }].map(({ label, data, color }) => (
-                <div key={label} style={{ flex: 1, backgroundColor: C.card, border: `2px solid ${color}`, borderRadius: 10, padding: 14, textAlign: "center" }}>
-                  <div style={{ color: C.gray, fontSize: 11, marginBottom: 8, letterSpacing: 1 }}>{label}</div>
-                  <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 8 }}>
-                    {data.cards.map((c, i) => <span key={i} style={{ backgroundColor: "#fff", color: "#000", padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 15 }}>{c}</span>)}
-                  </div>
-                  <div style={{ color, fontSize: 28, fontWeight: "bold" }}>{data.score}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {lastResult && (
-            <div style={{ padding: "6px 24px", borderRadius: 20, fontWeight: "bold", fontSize: 16, backgroundColor: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.dark }}>
-              {lastResult === "B" ? "BANKER KAZANDI" : lastResult === "P" ? "PLAYER KAZANDI" : "BERABERE"}
-            </div>
-          )}
-          {gs && !gs.gameOver && (
-            <div style={S.recBox}>
-              {gs.recommendation ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div><div style={{ fontSize: 38, fontWeight: "bold", color: gs.recommendation === "B" ? C.blue : C.red, marginBottom: 4 }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div><div style={{ color: C.gold, fontSize: 18 }}>{gs.unit} birim{gs.actualBet ? ` (${gs.actualBet})` : ""}</div></>
-              ) : (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>BEKLENIYOR</div><div style={{ color: C.gray, fontSize: 18 }}>{gs.message}</div></>
-              )}
-            </div>
-          )}
-          {gs?.message && !gs.gameOver && (
-            <div style={{ fontSize: 15, fontWeight: "bold", padding: "8px 20px", borderRadius: 8, backgroundColor: C.card, color: gs.message.includes("KAZANÇ") ? C.green : gs.message.includes("KAYIP") ? C.red : C.white }}>{gs.message}</div>
-          )}
-          {gs?.gameOver ? (
-            <div style={{ textAlign: "center", padding: 20 }}>
-              <div style={{ fontSize: 44, fontWeight: "bold", color: C.gold, marginBottom: 8 }}>GAME OVER</div>
-              <div style={{ color: C.white, marginBottom: 24, fontSize: 18 }}>Bakiye: {gs.balance?.toFixed(2)}</div>
-              <button style={{ ...S.btnGold, marginBottom: 12 }} onClick={startDemo}>Yeniden Oyna</button>
-              <button style={S.btnGhost} onClick={() => setScreen("landing")}>Ana Sayfa</button>
-            </div>
-          ) : (
-            <button style={{ ...S.btnGold, fontSize: 20, padding: "18px 0", maxWidth: 260 }} onClick={demoDeal} disabled={loading}>{loading ? "..." : "🂠  Kart Çek"}</button>
-          )}
-          <HistoryChips history={gs?.history} />
-        </div>
-        <FlashOverlay />
       </div>
     );
   }

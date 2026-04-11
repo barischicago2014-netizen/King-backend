@@ -185,107 +185,6 @@ function processResult(result, s) {
   }
 }
 
-function drawCard() { const cards = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"]; return cards[Math.floor(Math.random() * cards.length)]; }
-function cardValue(c) { if (c === "A") return 1; if (["10","J","Q","K"].includes(c)) return 0; return Number(c); }
-function handScore(cards) { return cards.reduce((s, c) => s + cardValue(c), 0) % 10; }
-function newDemoSession() { return { bankroll: 100, baseUnit: 0.5, balance: 100, maxWin: 100, fullHistory: [], bpHistory: [], consecutiveLosses: 0, lossStep: 0, lossLevel: 0, targetMax: null, phase: "waiting", observationCount: 0, currentSuggestion: null, currentUnit: 1 }; }
-let demoSession = newDemoSession();
-
-function runSimulation(bankroll, tables, targetUnits) {
-  function simRandom() {
-    const r = Math.random();
-    if (r < 0.0952) return "T";
-    if (r < 0.0952 + 0.4586) return "B";
-    return "P";
-  }
-  function simApplyLossLevel(s) {
-    const pcts = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
-    let level = 0;
-    for (let i = 0; i < pcts.length; i++) {
-      if (s.balance < s.bankroll * pcts[i]) { level = i + 1; } else break;
-    }
-    s.lossLevel = Math.min(level, 7);
-    // Option A: targetMax ilk tetiklenişte set edilir, sabit kalır
-    if (s.lossLevel > 0 && s.targetMax === null) {
-      s.targetMax = fmt(s.bankroll * pcts[s.lossLevel - 1]);
-    }
-  }
-  function playOneTable() {
-    const baseUnit = fmt(bankroll * 0.005);
-    const s = { bankroll, balance: bankroll, maxWin: bankroll, baseUnit, bpHistory: [], consecutiveLosses: 0, lossLevel: 0, targetMax: null, hands: 0 };
-    const gameOverTarget = () => s.targetMax !== null ? s.targetMax + targetUnits * baseUnit : s.bankroll + targetUnits * baseUnit;
-    for (let i = 0; i < 3; i++) {
-      let r = simRandom(); while (r === "T") r = simRandom();
-      s.bpHistory.push(r); s.hands++;
-    }
-    let currentSuggestion = getLeader(s.bpHistory);
-    let currentUnit = 1;
-    let maxHands = 400;
-    while (maxHands-- > 0) {
-      if (s.balance >= gameOverTarget()) return { result: "WIN", balance: s.balance, hands: s.hands, lossLevel: s.lossLevel };
-      if (s.balance < s.bankroll * 0.2) return { result: "BUST", balance: s.balance, hands: s.hands, lossLevel: s.lossLevel };
-      let r = simRandom(); s.hands++;
-      if (r === "T") continue;
-      s.bpHistory.push(r);
-      const win = r === currentSuggestion;
-      const betAmt = roundBet(currentUnit * baseUnit);
-      if (win) {
-        const commission = currentSuggestion === "B" ? fmt(betAmt * 0.05) : 0;
-        s.balance = fmt(s.balance + fmt(betAmt - commission));
-        if (s.balance > s.maxWin) s.maxWin = s.balance;
-        s.consecutiveLosses = 0;
-        currentSuggestion = getLeader(s.bpHistory);
-        const baseTarget = s.targetMax !== null ? s.targetMax : s.maxWin;
-        const gap = baseTarget + baseUnit - s.balance;
-        currentUnit = gap > 0 ? Math.ceil(gap / baseUnit) : 1;
-        if (currentUnit < 1) currentUnit = 1;
-        const maxUnits = Math.floor(s.balance / roundBet(baseUnit));
-        if (currentUnit > maxUnits && maxUnits > 0) currentUnit = maxUnits;
-      } else {
-        s.balance = fmt(s.balance - betAmt);
-        simApplyLossLevel(s);
-        s.consecutiveLosses++;
-        if (s.consecutiveLosses >= 3) {
-          for (let i = 0; i < 3; i++) { let obs = simRandom(); s.hands++; if (obs !== "T") s.bpHistory.push(obs); }
-          s.consecutiveLosses = 0;
-          currentSuggestion = getLeader(s.bpHistory);
-          currentUnit = 1;
-        } else {
-          currentSuggestion = currentSuggestion === "B" ? "P" : "B";
-          currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-        }
-      }
-    }
-    return { result: "TIMEOUT", balance: s.balance, hands: s.hands, lossLevel: s.lossLevel };
-  }
-  let totalProfit = 0, wins = 0, busts = 0, timeouts = 0, totalHands = 0;
-  let worstBalance = bankroll, bestProfit = 0;
-  const lossLevelCounts = [0, 0, 0, 0, 0, 0, 0, 0];
-  const tableResults = [];
-  for (let i = 0; i < tables; i++) {
-    const { result, balance, hands, lossLevel } = playOneTable();
-    const profit = fmt(balance - bankroll);
-    totalProfit = fmt(totalProfit + profit);
-    totalHands += hands;
-    if (balance < worstBalance) worstBalance = balance;
-    if (profit > bestProfit) bestProfit = profit;
-    lossLevelCounts[lossLevel]++;
-    if (result === "WIN") wins++; else if (result === "BUST") busts++; else if (result === "TIMEOUT") timeouts++;
-    tableResults.push({ result, profit, balance: fmt(balance), lossLevel });
-  }
-  const losses = tables - wins - busts - timeouts;
-  return { tables, bankroll, targetUnits, baseUnit: fmt(bankroll * 0.005), wins, busts, timeouts, losses, winRate: fmt((wins / tables) * 100), totalProfit: fmt(totalProfit), avgProfit: fmt(totalProfit / tables), avgHands: Math.round(totalHands / tables), worstBalance: fmt(worstBalance), bestProfit: fmt(bestProfit), lossLevelCounts };
-}
-
-app.post("/game/simulate", (req, res) => {
-  try {
-    const bankroll = Math.max(10, Number(req.body.bankroll) || 1000);
-    const tables = Math.min(Math.max(1, Number(req.body.tables) || 200), 2000);
-    const targetUnits = Math.max(1, Number(req.body.targetUnits) || 2);
-    const result = runSimulation(bankroll, tables, targetUnits);
-    return res.json(result);
-  } catch (err) { console.error("Simulate error:", err); return res.status(500).json({ message: "Simulasyon hatası", error: err.message, stack: err.stack }); }
-});
 
 app.get("/", (req, res) => res.send("Backend running"));
 
@@ -318,18 +217,6 @@ async function createUser(username, password) {
   return { ok: true, id: user._id };
 }
 
-app.post("/demo/reset", (req, res) => { demoSession = newDemoSession(); return res.json({ message: "Demo sifirland" }); });
-app.post("/demo/deal", (req, res) => {
-  if (demoSession.phase === "gameover") demoSession = newDemoSession();
-  const playerCards = [drawCard(), drawCard()];
-  const bankerCards = [drawCard(), drawCard()];
-  const pScore = handScore(playerCards);
-  const bScore = handScore(bankerCards);
-  let result = "T";
-  if (pScore > bScore) result = "P";
-  else if (bScore > pScore) result = "B";
-  return res.json({ cards: { player: { cards: playerCards, score: pScore }, banker: { cards: bankerCards, score: bScore } }, result, ...processResult(result, demoSession) });
-});
 
 app.post("/game/start", auth, async (req, res) => {
   try {
