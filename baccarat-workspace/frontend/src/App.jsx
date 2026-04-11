@@ -227,7 +227,7 @@ export default function App() {
 
   function FlashOverlay() {
     if (!flash) return null;
-    return <div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", backgroundColor: flash.color, color: "#000", padding: "10px 28px", borderRadius: 20, fontWeight: "bold", fontSize: 20, zIndex: 200 }}>{flash.text}</div>;
+    return <div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", backgroundColor: flash.color, color: "#000", padding: "10px 28px", borderRadius: 20, fontWeight: "bold", fontSize: 20, zIndex: 200, pointerEvents: "none" }}>{flash.text}</div>;
   }
 
   // ═══ LANDING ════════════════════════════════════════
