@@ -548,7 +548,7 @@ export default function App() {
             <>
               <div style={{ display: "flex", gap: 14, width: "100%", justifyContent: "center" }}>
                 {[{ l: "B", sub: "BANKER", color: C.blue }, { l: "P", sub: "PLAYER", color: C.red }, { l: "T", sub: "TIE", color: C.dark }].map(({ l, sub, color }) => (
-                  <button key={l} onClick={() => addResult(l)} disabled={loading} style={{ flex: 1, maxWidth: 120, height: 100, fontSize: 32, fontWeight: "bold", backgroundColor: color, color: C.white, border: lastResult === l ? `3px solid ${C.gold}` : "3px solid transparent", borderRadius: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, WebkitTapHighlightColor: "transparent" }}>
+                  <button key={l} onClick={() => addResult(l)} disabled={loading} style={{ flex: 1, maxWidth: 120, height: 100, fontSize: 32, fontWeight: "bold", backgroundColor: color, color: C.white, border: lastResult === l ? `3px solid ${C.gold}` : "3px solid transparent", borderRadius: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
                     {l}<span style={{ fontSize: 11, fontWeight: "normal", opacity: 0.8 }}>{sub}</span>
                   </button>
                 ))}
