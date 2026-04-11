@@ -122,10 +122,10 @@ function processResult(result, s) {
     return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
-  // leader: mevcut sonuç dahil edilmeden hesapla (ilk kurulum için önemli)
-  const leader = getLeader(s.bpHistory.length === 3 && !s.currentSuggestion ? s.bpHistory.slice(0, -1) : s.bpHistory);
+  // leader: 3 setup eli dahil tam geçmişe bakarak hesapla
+  const leader = getLeader(s.bpHistory);
   if (r === "T") {
-    if (!s.currentSuggestion) { s.currentSuggestion = getLeader(s.bpHistory.slice(0, -1)); s.currentUnit = 1; s.phase = "active"; }
+    if (!s.currentSuggestion) { s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1; s.phase = "active"; }
     return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: "TIE", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   if (!s.currentSuggestion) {
