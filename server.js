@@ -153,6 +153,9 @@ function processResult(result, s) {
     const gap = baseTarget + s.baseUnit - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
+    // Bahis mevcut bakiyeyi geçemez
+    const maxAffordable = Math.floor(s.balance / roundBet(s.baseUnit));
+    if (nextUnit > maxAffordable && maxAffordable > 0) nextUnit = maxAffordable;
     s.currentUnit = nextUnit;
     // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2
     const gameOverTarget = s.targetMax !== null ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
@@ -184,6 +187,102 @@ function cardValue(c) { if (c === "A") return 1; if (["10","J","Q","K"].includes
 function handScore(cards) { return cards.reduce((s, c) => s + cardValue(c), 0) % 10; }
 function newDemoSession() { return { bankroll: 100, baseUnit: 0.5, balance: 100, maxWin: 100, fullHistory: [], bpHistory: [], consecutiveLosses: 0, lossStep: 0, lossLevel: 0, targetMax: null, phase: "waiting", observationCount: 0, currentSuggestion: null, currentUnit: 1 }; }
 let demoSession = newDemoSession();
+
+function runSimulation(bankroll, tables, targetUnits) {
+  function simRandom() {
+    const r = Math.random();
+    if (r < 0.0952) return "T";
+    if (r < 0.0952 + 0.4586) return "B";
+    return "P";
+  }
+  function simApplyLossLevel(s) {
+    const pcts = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+    let level = 0;
+    for (let i = 0; i < pcts.length; i++) {
+      if (s.balance < s.bankroll * pcts[i]) { level = i + 1; } else break;
+    }
+    s.lossLevel = Math.min(level, 7);
+    // Option A: targetMax ilk tetiklenişte set edilir, sabit kalır
+    if (s.lossLevel > 0 && s.targetMax === null) {
+      s.targetMax = fmt(s.bankroll * pcts[s.lossLevel - 1]);
+    }
+  }
+  function playOneTable() {
+    const baseUnit = fmt(bankroll * 0.005);
+    const s = { bankroll, balance: bankroll, maxWin: bankroll, baseUnit, bpHistory: [], consecutiveLosses: 0, lossLevel: 0, targetMax: null, hands: 0 };
+    const gameOverTarget = () => s.targetMax !== null ? s.targetMax + targetUnits * baseUnit : s.bankroll + targetUnits * baseUnit;
+    for (let i = 0; i < 3; i++) {
+      let r = simRandom(); while (r === "T") r = simRandom();
+      s.bpHistory.push(r); s.hands++;
+    }
+    let currentSuggestion = getLeader(s.bpHistory);
+    let currentUnit = 1;
+    let maxHands = 400;
+    while (maxHands-- > 0) {
+      if (s.balance >= gameOverTarget()) return { result: "WIN", balance: s.balance, hands: s.hands, lossLevel: s.lossLevel };
+      if (s.balance < s.bankroll * 0.2) return { result: "BUST", balance: s.balance, hands: s.hands, lossLevel: s.lossLevel };
+      let r = simRandom(); s.hands++;
+      if (r === "T") continue;
+      s.bpHistory.push(r);
+      const win = r === currentSuggestion;
+      const betAmt = roundBet(currentUnit * baseUnit);
+      if (win) {
+        const commission = currentSuggestion === "B" ? fmt(betAmt * 0.05) : 0;
+        s.balance = fmt(s.balance + fmt(betAmt - commission));
+        if (s.balance > s.maxWin) s.maxWin = s.balance;
+        s.consecutiveLosses = 0;
+        currentSuggestion = getLeader(s.bpHistory);
+        const baseTarget = s.targetMax !== null ? s.targetMax : s.maxWin;
+        const gap = baseTarget + baseUnit - s.balance;
+        currentUnit = gap > 0 ? Math.ceil(gap / baseUnit) : 1;
+        if (currentUnit < 1) currentUnit = 1;
+        const maxUnits = Math.floor(s.balance / roundBet(baseUnit));
+        if (currentUnit > maxUnits && maxUnits > 0) currentUnit = maxUnits;
+      } else {
+        s.balance = fmt(s.balance - betAmt);
+        simApplyLossLevel(s);
+        s.consecutiveLosses++;
+        if (s.consecutiveLosses >= 3) {
+          for (let i = 0; i < 3; i++) { let obs = simRandom(); s.hands++; if (obs !== "T") s.bpHistory.push(obs); }
+          s.consecutiveLosses = 0;
+          currentSuggestion = getLeader(s.bpHistory);
+          currentUnit = 1;
+        } else {
+          currentSuggestion = currentSuggestion === "B" ? "P" : "B";
+          currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
+        }
+      }
+    }
+    return { result: "TIMEOUT", balance: s.balance, hands: s.hands, lossLevel: s.lossLevel };
+  }
+  let totalProfit = 0, wins = 0, busts = 0, timeouts = 0, totalHands = 0;
+  let worstBalance = bankroll, bestProfit = 0;
+  const lossLevelCounts = [0, 0, 0, 0, 0, 0, 0, 0];
+  const tableResults = [];
+  for (let i = 0; i < tables; i++) {
+    const { result, balance, hands, lossLevel } = playOneTable();
+    const profit = fmt(balance - bankroll);
+    totalProfit = fmt(totalProfit + profit);
+    totalHands += hands;
+    if (balance < worstBalance) worstBalance = balance;
+    if (profit > bestProfit) bestProfit = profit;
+    lossLevelCounts[lossLevel]++;
+    if (result === "WIN") wins++; else if (result === "BUST") busts++; else if (result === "TIMEOUT") timeouts++;
+    tableResults.push({ result, profit, balance: fmt(balance), lossLevel });
+  }
+  const losses = tables - wins - busts - timeouts;
+  return { tables, bankroll, targetUnits, baseUnit: fmt(bankroll * 0.005), wins, busts, timeouts, losses, winRate: fmt((wins / tables) * 100), totalProfit: fmt(totalProfit), avgProfit: fmt(totalProfit / tables), avgHands: Math.round(totalHands / tables), worstBalance: fmt(worstBalance), bestProfit: fmt(bestProfit), lossLevelCounts, tableResults };
+}
+
+app.post("/game/simulate", (req, res) => {
+  try {
+    const bankroll = Math.max(10, Number(req.body.bankroll) || 1000);
+    const tables = Math.min(Math.max(1, Number(req.body.tables) || 200), 2000);
+    const targetUnits = Math.max(1, Number(req.body.targetUnits) || 5);
+    const result = runSimulation(bankroll, tables, targetUnits);
+    return res.json(result);
+  } catch (err) { return res.status(500).json({ message: "Simulasyon hatası", error: err.message }); }
+});
 
 app.get("/", (req, res) => res.send("Backend running"));
 

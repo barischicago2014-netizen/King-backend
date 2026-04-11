@@ -41,6 +41,9 @@ export default function App() {
   const [flash, setFlash] = useState(null);
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [simInput, setSimInput] = useState({ bankroll: "1000", tables: "200", targetUnits: "5" });
+  const [simResult, setSimResult] = useState(null);
+  const [simLoading, setSimLoading] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -118,6 +121,21 @@ export default function App() {
       if (res.data.win === true) showFlash(`+${res.data.actualBet || res.data.unit}`, C.green);
       else if (res.data.win === false) showFlash(`-${res.data.actualBet || res.data.unit}`, C.red);
     } finally { setLoading(false); }
+  }
+
+  async function runSim() {
+    setSimLoading(true);
+    setSimResult(null);
+    try {
+      const res = await api.post("/game/simulate", {
+        bankroll: parseFloat(simInput.bankroll) || 1000,
+        tables: parseInt(simInput.tables) || 200,
+        targetUnits: parseInt(simInput.targetUnits) || 5,
+      });
+      setSimResult(res.data);
+    } catch (err) {
+      setSimResult({ error: err.response?.data?.message || "Hata oluştu" });
+    } finally { setSimLoading(false); }
   }
 
   async function triggerAi() {
@@ -219,7 +237,8 @@ export default function App() {
           <h1 style={{ fontSize: 42, color: C.gold, margin: "0 0 8px", letterSpacing: 2 }}>BACCARAT</h1>
           <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strateji Sistemi</p>
           <button style={{ ...S.btnGold, marginBottom: 14 }} onClick={() => setScreen("login")}>Giriş Yap</button>
-          <button style={S.btnOutline} onClick={startDemo} disabled={loading}>{loading ? "..." : "Demo Oyna"}</button>
+          <button style={{ ...S.btnOutline, marginBottom: 14 }} onClick={startDemo} disabled={loading}>{loading ? "..." : "Demo Oyna"}</button>
+          <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={() => { setSimResult(null); setScreen("simulation"); }}>Simülasyon</button>
         </div>
       </div>
     );
@@ -273,6 +292,107 @@ export default function App() {
             <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleBankrollStart} disabled={loading}>{loading ? "..." : "Oyuna Başla"}</button>
             <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Çıkış</button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ SİMÜLASYON ═════════════════════════════════════
+  if (screen === "simulation") {
+    const sr = simResult;
+    const pcts = [0, 10, 20, 30, 40, 50, 60, 70, 80];
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Geri</button>
+          <span style={{ color: C.gold, fontWeight: "bold", letterSpacing: 1 }}>SİMÜLASYON</span>
+          <div style={{ width: 60 }} />
+        </div>
+        <div style={{ ...S.content, gap: 12 }}>
+          {/* Ayarlar */}
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, width: "100%" }}>
+            <div style={{ color: C.gold, fontWeight: "bold", marginBottom: 12, fontSize: 13, letterSpacing: 1 }}>PARAMETRELER</div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+              {[
+                { label: "Bankroll ($)", key: "bankroll" },
+                { label: "Masa Sayısı", key: "tables" },
+                { label: "Hedef (birim)", key: "targetUnits" },
+              ].map(({ label, key }) => (
+                <div key={key} style={{ flex: 1 }}>
+                  <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>{label}</div>
+                  <input
+                    style={{ ...S.input, fontSize: 15, textAlign: "center", padding: "8px 6px" }}
+                    type="number"
+                    value={simInput[key]}
+                    onChange={(e) => setSimInput((p) => ({ ...p, [key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+            <div style={{ color: C.gray, fontSize: 11, marginBottom: 10, textAlign: "center" }}>
+              Birim: ${((parseFloat(simInput.bankroll) || 0) * 0.005).toFixed(2)} &nbsp;|&nbsp;
+              Hedef kâr/masa: ${(((parseFloat(simInput.bankroll) || 0) * 0.005) * (parseInt(simInput.targetUnits) || 0)).toFixed(2)}
+            </div>
+            <button
+              style={{ ...S.btnGold, fontSize: 16, padding: "12px 0" }}
+              onClick={runSim}
+              disabled={simLoading}
+            >
+              {simLoading ? "Oynanıyor..." : "▶ Simülasyonu Başlat"}
+            </button>
+          </div>
+
+          {/* Sonuçlar */}
+          {sr && !sr.error && (
+            <>
+              <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, width: "100%" }}>
+                <div style={{ color: C.gold, fontWeight: "bold", marginBottom: 12, fontSize: 13, letterSpacing: 1 }}>SONUÇLAR — {sr.tables} MASA</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[
+                    { label: "Kazanan Masa", value: `${sr.wins} (%${sr.winRate})`, color: C.green },
+                    { label: "Kaybeden Masa", value: `${sr.losses}`, color: C.red },
+                    { label: "Bust (-%80)", value: `${sr.busts}`, color: "#ff8844" },
+                    { label: "Timeout", value: `${sr.timeouts}`, color: C.gray },
+                    { label: "Toplam Kâr/Zarar", value: `$${sr.totalProfit}`, color: sr.totalProfit >= 0 ? C.green : C.red },
+                    { label: "Masa Başı Ort.", value: `$${sr.avgProfit}`, color: sr.avgProfit >= 0 ? C.green : C.red },
+                    { label: "Ort. El Sayısı", value: sr.avgHands, color: C.white },
+                    { label: "En İyi Kâr", value: `$${sr.bestProfit}`, color: C.green },
+                    { label: "En Kötü Bakiye", value: `$${sr.worstBalance}`, color: "#ff8844" },
+                    { label: "Günlük %20 için", value: `${Math.ceil((sr.bankroll * 0.2) / ((sr.targetUnits * sr.baseUnit) || 1))} masa`, color: C.gold },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ backgroundColor: "#0a2a16", borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>{label}</div>
+                      <div style={{ color, fontWeight: "bold", fontSize: 15 }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Baraj dağılımı */}
+              <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, width: "100%" }}>
+                <div style={{ color: C.gold, fontWeight: "bold", marginBottom: 10, fontSize: 13, letterSpacing: 1 }}>BARAJ DAĞILIMI</div>
+                {sr.lossLevelCounts.map((count, i) => {
+                  const pct = sr.tables > 0 ? ((count / sr.tables) * 100).toFixed(1) : 0;
+                  const barWidth = sr.tables > 0 ? (count / sr.tables) * 100 : 0;
+                  const label = i === 0 ? "Barajsız" : `L${i} (-%${pcts[i]})`;
+                  return (
+                    <div key={i} style={{ marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 }}>
+                        <span style={{ color: i === 0 ? C.green : "#ff8844" }}>{label}</span>
+                        <span style={{ color: C.white }}>{count} masa (%{pct})</span>
+                      </div>
+                      <div style={{ backgroundColor: "#0a2a16", borderRadius: 4, height: 6 }}>
+                        <div style={{ width: `${barWidth}%`, backgroundColor: i === 0 ? C.green : "#ff8844", height: "100%", borderRadius: 4 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {sr?.error && (
+            <div style={{ color: C.red, textAlign: "center", padding: 20 }}>{sr.error}</div>
+          )}
         </div>
       </div>
     );
