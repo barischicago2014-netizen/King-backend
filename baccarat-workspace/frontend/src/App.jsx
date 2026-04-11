@@ -30,6 +30,7 @@ export default function App() {
   const [screen, setScreen] = useState("landing"); // landing | login | bankroll | demo | game
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ username: "", password: "" });
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [formError, setFormError] = useState("");
   const [bankrollInput, setBankrollInput] = useState("");
   const [bankrollError, setBankrollError] = useState("");
@@ -58,6 +59,7 @@ export default function App() {
 
   async function handleLogin() {
     setFormError("");
+    if (!termsAccepted) { setFormError("Devam etmek için şartları kabul etmelisiniz"); return; }
     if (!form.username.trim() || !form.password.trim()) { setFormError("Kullanıcı adı ve şifre gerekli"); return; }
     setLoading(true);
     try {
@@ -253,8 +255,18 @@ export default function App() {
             <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 24, fontSize: 22 }}>Giriş Yap</h2>
             <input style={{ ...S.input, marginBottom: 12 }} placeholder="Kullanıcı adı" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="username" />
             <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Şifre" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="current-password" />
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14, cursor: "pointer" }} onClick={() => setTermsAccepted(t => !t)}>
+              <div style={{ width: 20, height: 20, minWidth: 20, border: `2px solid ${termsAccepted ? C.gold : C.border}`, borderRadius: 4, backgroundColor: termsAccepted ? C.gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+                {termsAccepted && <span style={{ color: "#000", fontSize: 13, fontWeight: "bold" }}>✓</span>}
+              </div>
+              <span style={{ color: C.gray, fontSize: 12, lineHeight: 1.5 }}>
+                I have read and agree to the{" "}
+                <a href="/terms.pdf" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }} onClick={e => e.stopPropagation()}>Terms of Use</a>.
+                {" "}I confirm I am 21+ and online gambling is legal in my jurisdiction.
+              </span>
+            </div>
             {formError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
-            <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleLogin} disabled={loading}>{loading ? "..." : "Giriş Yap"}</button>
+            <button style={{ ...S.btnGold, marginBottom: 10, opacity: termsAccepted ? 1 : 0.5 }} onClick={handleLogin} disabled={loading}>{loading ? "..." : "Giriş Yap"}</button>
             <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => setScreen("landing")}>← Geri</button>
           </div>
         </div>
