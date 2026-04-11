@@ -224,7 +224,7 @@ app.post("/game/start", auth, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
-    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin, sistem baslasın" });
+    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin, sistem baslasın" });
   } catch (err) { return res.status(500).json({ message: "Oyun baslatılamadi", error: err.message }); }
 });
 
@@ -238,12 +238,21 @@ app.get("/game/state", auth, async (req, res) => {
 
 app.post("/game/result", auth, async (req, res) => {
   try {
-    const { result } = req.body;
-    const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    const { result, sessionId } = req.body;
+    let session = null;
+    if (sessionId) {
+      session = await Session.findOne({ _id: sessionId, userId: req.user.id, isActive: true });
+    }
+    if (!session) {
+      session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ startedAt: -1 });
+    }
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
     const state = processResult(result, session);
+    session.markModified("fullHistory");
+    session.markModified("bpHistory");
+    session.markModified("handLog");
     await session.save();
-    return res.json(state);
+    return res.json({ ...state, sessionId: String(session._id) });
   } catch (err) { return res.status(400).json({ message: err.message }); }
 });
 
@@ -253,8 +262,8 @@ app.post("/game/reset", auth, async (req, res) => {
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
-    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
-    return res.json({ balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin" });
+    const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null, fullHistory: [], bpHistory: [], consecutiveLosses: 0, sessionHandCount: 0, phase: "waiting", currentSuggestion: null, currentUnit: 1 });
+    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin" });
   } catch (err) { return res.status(500).json({ message: "Reset basarisiz", error: err.message }); }
 });
 
