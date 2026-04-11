@@ -153,7 +153,6 @@ function processResult(result, s) {
     const gap = baseTarget + s.baseUnit - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
-    if (nextUnit > 5) nextUnit = 5;
     s.currentUnit = nextUnit;
     // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2
     const gameOverTarget = s.targetMax !== null ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
