@@ -41,7 +41,7 @@ export default function App() {
   const [flash, setFlash] = useState(null);
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [simInput, setSimInput] = useState({ bankroll: "1000", tables: "200", targetUnits: "5" });
+  const [simInput, setSimInput] = useState({ bankroll: "1000", tables: "200", targetUnits: "2" });
   const [simResult, setSimResult] = useState(null);
   const [simLoading, setSimLoading] = useState(false);
 
