@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:10000";
@@ -34,6 +34,7 @@ export default function App() {
   const [bankrollInput, setBankrollInput] = useState("");
   const [bankrollError, setBankrollError] = useState("");
   const [loading, setLoading] = useState(false);
+  const resultInFlight = useRef(false);
   const [gs, setGs] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [lastResult, setLastResult] = useState(null);
@@ -108,10 +109,13 @@ export default function App() {
   }
 
   async function addResult(result) {
-    if (loading || gs?.gameOver) return;
+    if (resultInFlight.current || gs?.gameOver) return;
+    resultInFlight.current = true;
     setLoading(true);
     try {
       const res = await api.post("/game/result", { result, sessionId });
+      resultInFlight.current = false;
+      setLoading(false);
       setLastResult(result);
       if (res.data.sessionId) setSessionId(res.data.sessionId);
       setGs((prev) => ({ ...prev, ...res.data }));
@@ -125,8 +129,10 @@ export default function App() {
         if (br > 0 && b < br * 0.93) triggerAi();
       }
     } catch (err) {
+      resultInFlight.current = false;
+      setLoading(false);
       if (err.response?.status === 404) setScreen("bankroll");
-    } finally { setLoading(false); }
+    }
   }
 
   async function finishGame() {
