@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const Anthropic = require("@anthropic-ai/sdk");
 const { Resend } = require("resend");
 const cron = require("node-cron");
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
@@ -14,6 +15,10 @@ const JWT_SECRET = process.env.JWT_SECRET || "baccarat_jwt_secret_2024";
 
 app.use(express.json());
 app.use(cors());
+
+// Serve frontend build
+const frontendBuild = path.join(__dirname, "baccarat-workspace/frontend/build");
+app.use(express.static(frontendBuild));
 mongoose.set("strictQuery", true);
 
 async function connectDB() {
@@ -235,7 +240,7 @@ function processResult(result, s) {
 }
 
 
-app.get("/", (req, res) => res.send("Backend running"));
+app.get("/health", (req, res) => res.send("Backend running"));
 
 // ═══ WHOP WEBHOOK ════════════════════════════════════
 app.post("/whop/webhook", async (req, res) => {
@@ -679,6 +684,11 @@ app.get("/admin/send-report", async (req, res) => {
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   await sendDailyReport();
   return res.json({ message: "Rapor gonderildi" });
+});
+
+// Catch-all: serve React frontend for any non-API route
+app.get("*", (req, res) => {
+  res.sendFile(path.join(frontendBuild, "index.html"));
 });
 
 async function startServer() {
