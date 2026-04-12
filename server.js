@@ -19,11 +19,13 @@ mongoose.set("strictQuery", true);
 async function connectDB() {
   try {
     if (!process.env.MONGO_URI) throw new Error("MONGO_URI missing");
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("MongoDB connected");
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGO_URI);
+      console.log("MongoDB connected");
+    }
   } catch (err) {
     console.log("DB error:", err.message);
-    process.exit(1);
+    // process.exit kaldırıldı — serverless'ta tüm fonksiyonu öldürürdü
   }
 }
 
