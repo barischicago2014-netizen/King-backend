@@ -105,12 +105,8 @@ async function authWithPlan(req, res, next) {
     const user = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ message: "Kullanici bulunamadi" });
     req.user = { id: String(user._id), username: user.username, role: user.role, exempt: user.exempt, plan: user.plan, subscriptionExpiry: user.subscriptionExpiry };
-    // Exempt veya admin → geç
-    if (user.exempt || user.role === "admin") return next();
-    // Plan kontrolü
-    const now = new Date();
-    const active = user.plan === "active" && user.subscriptionExpiry && user.subscriptionExpiry > now;
-    if (!active) return res.status(403).json({ message: "Abonelik gerekli", code: "NO_PLAN" });
+    // MEMBERSHIP CHECK DISABLED — all logged-in users can play
+    return next();
     // Günlük süre kontrolü (120 dk + extra)
     const DAILY_LIMIT = 120;
     if (user.dailyWindowStart) {
