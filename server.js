@@ -3,7 +3,6 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
 const Anthropic = require("@anthropic-ai/sdk");
 const { Resend } = require("resend");
 const cron = require("node-cron");
