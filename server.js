@@ -45,7 +45,7 @@ const UserSchema = new mongoose.Schema({
   dailyWindowStart: { type: Date, default: null },
   dailyExtraMinutes: { type: Number, default: 0 },
 });
-const User = mongoose.model("User", UserSchema);
+const User = mongoose.models.User || mongoose.model("User", UserSchema);
 
 const SessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -79,7 +79,7 @@ const SessionSchema = new mongoose.Schema({
     timestamp: Date,
   }],
 });
-const Session = mongoose.model("Session", SessionSchema);
+const Session = mongoose.models.Session || mongoose.model("Session", SessionSchema);
 
 function auth(req, res, next) {
   const token = (req.headers.authorization || "").split(" ")[1];
