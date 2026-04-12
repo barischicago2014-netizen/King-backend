@@ -34,6 +34,16 @@ const UserSchema = new mongoose.Schema({
   termsAcceptedAt: { type: Date, default: null },
   termsAcceptedIp: { type: String, default: null },
   termsVersion: { type: String, default: null },
+  // Plan / erişim
+  role: { type: String, default: "user" }, // "admin" | "vip" | "user"
+  exempt: { type: Boolean, default: false }, // true → ödeme/süre kontrolü yok
+  plan: { type: String, default: "none" }, // "trial" | "active" | "none"
+  subscriptionExpiry: { type: Date, default: null },
+  trialUsed: { type: Boolean, default: false },
+  whopMemberId: { type: String, default: null },
+  // Günlük süre takibi
+  dailyWindowStart: { type: Date, default: null },
+  dailyExtraMinutes: { type: Number, default: 0 },
 });
 const User = mongoose.model("User", UserSchema);
 
@@ -76,6 +86,41 @@ function auth(req, res, next) {
   if (!token) return res.status(401).json({ message: "Token gerekli" });
   try { req.user = jwt.verify(token, JWT_SECRET); next(); }
   catch { return res.status(401).json({ message: "Gecersiz token" }); }
+}
+
+async function authWithPlan(req, res, next) {
+  const token = (req.headers.authorization || "").split(" ")[1];
+  if (!token) return res.status(401).json({ message: "Token gerekli" });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user) return res.status(401).json({ message: "Kullanici bulunamadi" });
+    req.user = { id: String(user._id), username: user.username, role: user.role, exempt: user.exempt, plan: user.plan, subscriptionExpiry: user.subscriptionExpiry };
+    // Exempt veya admin → geç
+    if (user.exempt || user.role === "admin") return next();
+    // Plan kontrolü
+    const now = new Date();
+    const active = user.plan === "active" && user.subscriptionExpiry && user.subscriptionExpiry > now;
+    if (!active) return res.status(403).json({ message: "Abonelik gerekli", code: "NO_PLAN" });
+    // Günlük süre kontrolü (120 dk + extra)
+    const DAILY_LIMIT = 120;
+    if (user.dailyWindowStart) {
+      const windowDate = new Date(user.dailyWindowStart);
+      const isToday = windowDate.toDateString() === now.toDateString();
+      if (isToday) {
+        const elapsed = (now - windowDate) / 60000; // dakika
+        const allowed = DAILY_LIMIT + (user.dailyExtraMinutes || 0);
+        if (elapsed > allowed) return res.status(403).json({ message: "Gunluk suren doldu", code: "DAILY_LIMIT", elapsed: Math.floor(elapsed), allowed });
+      } else {
+        // Yeni gün — sıfırla
+        await User.findByIdAndUpdate(user._id, { dailyWindowStart: now, dailyExtraMinutes: 0 });
+      }
+    } else {
+      // İlk kullanım — pencereyi başlat
+      await User.findByIdAndUpdate(user._id, { dailyWindowStart: now });
+    }
+    next();
+  } catch { return res.status(401).json({ message: "Gecersiz token" }); }
 }
 
 function getLeader(bpHistory) {
@@ -188,6 +233,56 @@ function processResult(result, s) {
 
 app.get("/", (req, res) => res.send("Backend running"));
 
+// ═══ WHOP WEBHOOK ════════════════════════════════════
+const crypto = require("crypto");
+app.post("/whop/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  try {
+    const secret = process.env.WHOP_WEBHOOK_SECRET;
+    const sig = req.headers["x-whop-signature-256"] || req.headers["x-whop-signature"] || "";
+    if (secret) {
+      const hmac = crypto.createHmac("sha256", secret).update(req.body).digest("hex");
+      if (sig !== `sha256=${hmac}`) return res.status(401).json({ message: "Invalid signature" });
+    }
+    const event = JSON.parse(req.body.toString());
+    const { action, data } = event;
+    const whopMemberId = data?.id || data?.membership?.id;
+    const userEmail = data?.user?.email;
+    const username = data?.metadata?.username || null;
+
+    if (action === "membership.went_valid") {
+      // Abonelik aktif / trial başladı
+      let user = null;
+      if (username) user = await User.findOne({ username: username.toLowerCase() });
+      if (!user && userEmail) user = await User.findOne({ email: userEmail.toLowerCase() });
+      if (!user) { console.log("Whop webhook: user not found", { username, userEmail }); return res.json({ ok: true }); }
+      const expiry = new Date();
+      expiry.setMonth(expiry.getMonth() + 1);
+      user.plan = "active";
+      user.subscriptionExpiry = expiry;
+      user.whopMemberId = whopMemberId || user.whopMemberId;
+      await user.save();
+      console.log(`Whop: activated ${user.username} until ${expiry}`);
+    } else if (action === "membership.went_invalid") {
+      // Abonelik iptal / süresi doldu
+      let user = null;
+      if (whopMemberId) user = await User.findOne({ whopMemberId });
+      if (!user && username) user = await User.findOne({ username: username.toLowerCase() });
+      if (user) { user.plan = "none"; await user.save(); console.log(`Whop: deactivated ${user.username}`); }
+    }
+    return res.json({ ok: true });
+  } catch (err) { console.error("Whop webhook error:", err); return res.status(500).json({ message: err.message }); }
+});
+
+// ═══ ERİŞİM KONTROLÜ ════════════════════════════════
+function checkAccess(req, res, next) {
+  const user = req.user;
+  if (!user) return res.status(401).json({ message: "Token gerekli" });
+  // Admin veya exempt kullanıcılar geçer
+  if (user.exempt || user.role === "admin") return next();
+  // Plan kontrolü (DB'den tekrar çekmemek için auth'da user objesine ekleyeceğiz)
+  return next(); // Şimdilik açık, DB kontrolü aşağıda
+}
+
 app.post("/login", async (req, res) => {
   try {
     const { username, password, termsAccepted } = req.body;
@@ -218,7 +313,7 @@ async function createUser(username, password) {
 }
 
 
-app.post("/game/start", auth, async (req, res) => {
+app.post("/game/start", authWithPlan, async (req, res) => {
   try {
     const bankroll = Number(req.body.bankroll);
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
@@ -237,7 +332,7 @@ app.get("/game/state", auth, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "State alinamadi", error: err.message }); }
 });
 
-app.post("/game/result", auth, async (req, res) => {
+app.post("/game/result", authWithPlan, async (req, res) => {
   try {
     const { result, sessionId } = req.body;
     let session = null;
@@ -257,7 +352,7 @@ app.post("/game/result", auth, async (req, res) => {
   } catch (err) { return res.status(400).json({ message: err.message }); }
 });
 
-app.post("/game/reset", auth, async (req, res) => {
+app.post("/game/reset", authWithPlan, async (req, res) => {
   try {
     const bankroll = Number(req.body.bankroll);
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
@@ -268,7 +363,7 @@ app.post("/game/reset", auth, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "Reset basarisiz", error: err.message }); }
 });
 
-app.post("/game/finish", auth, async (req, res) => {
+app.post("/game/finish", authWithPlan, async (req, res) => {
   try {
     const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
@@ -287,6 +382,27 @@ app.post("/admin/create-user", async (req, res) => {
     const result = await createUser(username, password);
     if (result.error) return res.status(400).json({ message: result.error });
     return res.json({ ok: true, username: username.toLowerCase() });
+  } catch (err) { return res.status(500).json({ message: err.message }); }
+});
+
+app.post("/admin/set-plan", async (req, res) => {
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  try {
+    const { username, plan, months, exempt, role } = req.body;
+    const user = await User.findOne({ username: username.toLowerCase() });
+    if (!user) return res.status(404).json({ message: "Kullanici bulunamadi" });
+    if (plan !== undefined) user.plan = plan;
+    if (exempt !== undefined) user.exempt = exempt;
+    if (role !== undefined) user.role = role;
+    if (months) {
+      const expiry = new Date();
+      expiry.setMonth(expiry.getMonth() + months);
+      user.subscriptionExpiry = expiry;
+      user.plan = "active";
+    }
+    await user.save();
+    return res.json({ ok: true, username: user.username, plan: user.plan, exempt: user.exempt, role: user.role, subscriptionExpiry: user.subscriptionExpiry });
   } catch (err) { return res.status(500).json({ message: err.message }); }
 });
 
@@ -394,7 +510,7 @@ app.get("/game/export", auth, async (req, res) => {
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
-app.post("/game/analysis", auth, async (req, res) => {
+app.post("/game/analysis", authWithPlan, async (req, res) => {
   try {
     if (!anthropic) return res.json({ ok: false, side: null, reason: "AI devre disi" });
     const session = await Session.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
