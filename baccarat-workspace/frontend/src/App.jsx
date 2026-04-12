@@ -26,9 +26,12 @@ btnGhost: { padding: "9px 20px", fontSize: 13, backgroundColor: "transparent", c
 };
 
 export default function App() {
-  const [screen, setScreen] = useState("landing"); // landing | login | bankroll | game
+  const [screen, setScreen] = useState("landing"); // landing | login | signup | verify | subscribe | bankroll | game
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ username: "", password: "" });
+  const [signupForm, setSignupForm] = useState({ username: "", email: "", password: "" });
+  const [verifyCode, setVerifyCode] = useState("");
+  const [pendingUsername, setPendingUsername] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [formError, setFormError] = useState("");
   const [bankrollInput, setBankrollInput] = useState("");
@@ -55,8 +58,8 @@ export default function App() {
 
   async function handleLogin() {
     setFormError("");
-    if (!termsAccepted) { setFormError("Devam etmek için şartları kabul etmelisiniz"); return; }
-    if (!form.username.trim() || !form.password.trim()) { setFormError("Kullanıcı adı ve şifre gerekli"); return; }
+    if (!termsAccepted) { setFormError("You must accept the Terms of Use to continue"); return; }
+    if (!form.username.trim() || !form.password.trim()) { setFormError("Username and password are required"); return; }
     setLoading(true);
     try {
       const res = await api.post("/login", { ...form, termsAccepted });
@@ -66,7 +69,62 @@ export default function App() {
       setForm({ username: "", password: "" });
       setScreen("bankroll");
     } catch (err) {
-      setFormError(err.response?.data?.message || "Giriş başarısız");
+      const code = err.response?.data?.code;
+      const username = err.response?.data?.username;
+      if (code === "EMAIL_NOT_VERIFIED" && username) {
+        setPendingUsername(username);
+        setScreen("verify");
+      } else if (code === "NO_PLAN") {
+        setScreen("subscribe");
+      } else {
+        setFormError(err.response?.data?.message || "Login failed");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSignup() {
+    setFormError("");
+    if (!signupForm.username.trim() || !signupForm.email.trim() || !signupForm.password.trim()) { setFormError("All fields are required"); return; }
+    if (signupForm.password.length < 6) { setFormError("Password must be at least 6 characters"); return; }
+    if (!termsAccepted) { setFormError("You must accept the Terms of Use to continue"); return; }
+    setLoading(true);
+    try {
+      await api.post("/signup", signupForm);
+      setPendingUsername(signupForm.username.toLowerCase());
+      setSignupForm({ username: "", email: "", password: "" });
+      setScreen("verify");
+    } catch (err) {
+      setFormError(err.response?.data?.message || "Signup failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify() {
+    setFormError("");
+    if (!verifyCode.trim()) { setFormError("Please enter the verification code"); return; }
+    setLoading(true);
+    try {
+      await api.post("/verify-email", { username: pendingUsername, code: verifyCode });
+      setVerifyCode("");
+      setScreen("subscribe");
+    } catch (err) {
+      setFormError(err.response?.data?.message || "Verification failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendCode() {
+    setFormError("");
+    setLoading(true);
+    try {
+      await api.post("/resend-code", { username: pendingUsername });
+      setFormError("New code sent to your email");
+    } catch (err) {
+      setFormError(err.response?.data?.message || "Failed to resend code");
     } finally {
       setLoading(false);
     }
@@ -75,7 +133,7 @@ export default function App() {
   async function handleBankrollStart() {
     setBankrollError("");
     const amount = parseFloat(bankrollInput);
-    if (!amount || amount <= 0) { setBankrollError("Geçerli bir miktar girin"); return; }
+    if (!amount || amount <= 0) { setBankrollError("Please enter a valid amount"); return; }
     setLoading(true);
     try {
       const res = await api.post("/game/start", { bankroll: amount });
@@ -85,7 +143,7 @@ export default function App() {
       setBankrollInput("");
       setScreen("game");
     } catch (err) {
-      setBankrollError(err.response?.data?.message || "Hata oluştu");
+      setBankrollError(err.response?.data?.message || "An error occurred");
     } finally {
       setLoading(false);
     }
@@ -136,7 +194,7 @@ export default function App() {
   }
 
   async function finishGame() {
-    if (!window.confirm("Oyunu bitirmek istediğine emin misin? Mevcut bakiyenle yeni oyun başlayacak.")) return;
+    if (!window.confirm("Are you sure you want to end the game? A new game will start with your current balance.")) return;
     setLoading(true);
     try {
       const res = await api.post("/game/finish");
@@ -200,8 +258,9 @@ export default function App() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ fontSize: 64, marginBottom: 4 }}>♠</div>
           <h1 style={{ fontSize: 42, color: C.gold, margin: "0 0 8px", letterSpacing: 2 }}>BACCARAT</h1>
-          <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strateji Sistemi</p>
-          <button style={{ ...S.btnGold, marginBottom: 14 }} onClick={() => setScreen("login")}>Giriş Yap</button>
+          <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strategy System</p>
+          <button style={{ ...S.btnGold, marginBottom: 14 }} onClick={() => { setFormError(""); setScreen("login"); }}>Sign In</button>
+          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer" }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
         </div>
       </div>
     );
@@ -213,9 +272,9 @@ export default function App() {
       <div style={S.page}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
-            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 24, fontSize: 22 }}>Giriş Yap</h2>
-            <input style={{ ...S.input, marginBottom: 12 }} placeholder="Kullanıcı adı" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="username" />
-            <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Şifre" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="current-password" />
+            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 24, fontSize: 22 }}>Sign In</h2>
+            <input style={{ ...S.input, marginBottom: 12 }} placeholder="Username" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="username" />
+            <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="current-password" />
             <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14, cursor: "pointer" }} onClick={() => setTermsAccepted(t => !t)}>
               <div style={{ width: 20, height: 20, minWidth: 20, border: `2px solid ${termsAccepted ? C.gold : C.border}`, borderRadius: 4, backgroundColor: termsAccepted ? C.gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
                 {termsAccepted && <span style={{ color: "#000", fontSize: 13, fontWeight: "bold" }}>✓</span>}
@@ -227,8 +286,84 @@ export default function App() {
               </span>
             </div>
             {formError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
-            <button style={{ ...S.btnGold, marginBottom: 10, opacity: termsAccepted ? 1 : 0.5 }} onClick={handleLogin} disabled={loading}>{loading ? "..." : "Giriş Yap"}</button>
-            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => setScreen("landing")}>← Geri</button>
+            <button style={{ ...S.btnGold, marginBottom: 10, opacity: termsAccepted ? 1 : 0.5 }} onClick={handleLogin} disabled={loading}>{loading ? "..." : "Sign In"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center", marginBottom: 8 }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Don't have an account? Sign Up</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => setScreen("landing")}>← Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ SIGNUP ═════════════════════════════════════════
+  if (screen === "signup") {
+    return (
+      <div style={S.page}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 24, fontSize: 22 }}>Create Account</h2>
+            <input style={{ ...S.input, marginBottom: 12 }} placeholder="Username" value={signupForm.username} onChange={(e) => setSignupForm(f => ({ ...f, username: e.target.value }))} autoComplete="username" />
+            <input style={{ ...S.input, marginBottom: 12 }} type="email" placeholder="Email" value={signupForm.email} onChange={(e) => setSignupForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" />
+            <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Password (min 6 characters)" value={signupForm.password} onChange={(e) => setSignupForm(f => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleSignup()} autoComplete="new-password" />
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14, cursor: "pointer" }} onClick={() => setTermsAccepted(t => !t)}>
+              <div style={{ width: 20, height: 20, minWidth: 20, border: `2px solid ${termsAccepted ? C.gold : C.border}`, borderRadius: 4, backgroundColor: termsAccepted ? C.gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+                {termsAccepted && <span style={{ color: "#000", fontSize: 13, fontWeight: "bold" }}>✓</span>}
+              </div>
+              <span style={{ color: C.gray, fontSize: 12, lineHeight: 1.5 }}>
+                I have read and agree to the{" "}
+                <a href="/terms.pdf" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }} onClick={e => e.stopPropagation()}>Terms of Use</a>.
+                {" "}I confirm I am 21+ and online gambling is legal in my jurisdiction.
+              </span>
+            </div>
+            {formError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
+            <button style={{ ...S.btnGold, marginBottom: 10, opacity: termsAccepted ? 1 : 0.5 }} onClick={handleSignup} disabled={loading}>{loading ? "..." : "Create Account"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => { setFormError(""); setScreen("login"); }}>Already have an account? Sign In</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ VERIFY EMAIL ════════════════════════════════════
+  if (screen === "verify") {
+    return (
+      <div style={S.page}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>📧</div>
+              <h2 style={{ color: C.gold, fontSize: 22, margin: "0 0 8px" }}>Check Your Email</h2>
+              <p style={{ color: C.gray, fontSize: 13, margin: 0 }}>We sent a 6-digit code to your email. Enter it below.</p>
+            </div>
+            <input style={{ ...S.input, marginBottom: 16, fontSize: 24, textAlign: "center", letterSpacing: 8 }} placeholder="000000" maxLength={6} value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && handleVerify()} />
+            {formError && <p style={{ color: formError.includes("sent") ? C.green : C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
+            <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleVerify} disabled={loading}>{loading ? "..." : "Verify Email"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center", marginBottom: 8 }} onClick={handleResendCode} disabled={loading}>Resend Code</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => setScreen("landing")}>← Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ SUBSCRIBE ═══════════════════════════════════════
+  if (screen === "subscribe") {
+    return (
+      <div style={S.page}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320, textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>♠</div>
+            <h2 style={{ color: C.gold, fontSize: 22, margin: "0 0 8px" }}>Subscription Required</h2>
+            <p style={{ color: C.gray, fontSize: 13, marginBottom: 8 }}>Get full access to King Strategy.</p>
+            <div style={{ backgroundColor: "#0a2a16", borderRadius: 10, padding: "16px 20px", marginBottom: 20 }}>
+              <div style={{ color: C.gold, fontSize: 32, fontWeight: "bold" }}>$24.50<span style={{ fontSize: 14, color: C.gray }}>/first month</span></div>
+              <div style={{ color: C.gray, fontSize: 12, marginBottom: 4 }}>then $49/month</div>
+              <div style={{ color: C.green, fontSize: 12 }}>✓ First day free trial</div>
+              <div style={{ color: C.green, fontSize: 12 }}>✓ 2 hours daily access</div>
+              <div style={{ color: C.green, fontSize: 12 }}>✓ Real-time strategy system</div>
+            </div>
+            <a href="https://whop.com/trickandtreat-org/king-strategy" target="_blank" rel="noopener noreferrer" style={{ display: "block", padding: "14px 0", width: "100%", fontSize: 17, fontWeight: "bold", backgroundColor: C.gold, color: "#000", border: "none", borderRadius: 8, cursor: "pointer", textDecoration: "none", marginBottom: 12 }}>Subscribe on Whop</a>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => setScreen("login")}>← Back to Sign In</button>
           </div>
         </div>
       </div>
@@ -258,12 +393,12 @@ export default function App() {
             />
             {unitPreview && (
               <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>
-                Birim değeri: <span style={{ color: C.gold }}>{unitPreview}</span> (bankroll × 0.5%)
+                Unit value: <span style={{ color: C.gold }}>{unitPreview}</span> (bankroll × 0.5%)
               </p>
             )}
             {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
-            <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleBankrollStart} disabled={loading}>{loading ? "..." : "Oyuna Başla"}</button>
-            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Çıkış</button>
+            <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={handleBankrollStart} disabled={loading}>{loading ? "..." : "Start Game"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Sign Out</button>
           </div>
         </div>
       </div>
@@ -281,10 +416,10 @@ export default function App() {
           <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
           <div style={{ textAlign: "center" }}>
             <div style={{ color: C.gold, fontWeight: "bold", fontSize: 20 }}>{gs?.balance?.toFixed(2) ?? "—"}</div>
-            <div style={{ color: C.gray, fontSize: 11 }}>birim: {gs?.baseUnit?.toFixed(2)}</div>
+            <div style={{ color: C.gray, fontSize: 11 }}>unit: {gs?.baseUnit?.toFixed(2)}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ color: C.gray, fontSize: 10 }}>Hedef: <span style={{ color: C.green }}>{gameTarget != null ? gameTarget.toFixed(2) : "—"}</span></div>
+            <div style={{ color: C.gray, fontSize: 10 }}>Target: <span style={{ color: C.green }}>{gameTarget != null ? gameTarget.toFixed(2) : "—"}</span></div>
             {gs?.lossLevel > 0 && <div style={{ color: "#ff8844", fontSize: 10 }}>Risk: L{gs.lossLevel}</div>}
           </div>
         </div>
@@ -294,12 +429,12 @@ export default function App() {
           {gs && !gs.gameOver && (
             <div style={S.recBox}>
               {phase === "waiting" ? (
-                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>BAŞLANGIÇ</div><div style={{ color: C.gray, fontSize: 18 }}>{Math.max(0, 3 - (gs?.sessionHandCount || 0))} sonuç daha girin</div></>
+                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>SETUP</div><div style={{ color: C.gray, fontSize: 18 }}>{Math.max(0, 3 - (gs?.sessionHandCount || 0))} more results needed</div></>
               ) : gs.recommendation ? (
                 <>
-                  <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SİSTEM ÖNERİSİ</div>
+                  <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SYSTEM RECOMMENDATION</div>
                   <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 4, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
-                  <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>{gs.unit} birim</div>
+                  <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>{gs.unit} units</div>
                   {gs.actualBet && <div style={{ color: C.white, fontSize: 16, marginTop: 4, opacity: 0.8 }}>({gs.actualBet})</div>}
                 </>
               ) : null}
@@ -307,19 +442,19 @@ export default function App() {
           )}
 
           {gs?.message && !gs.gameOver && (
-            <div style={{ fontSize: 14, fontWeight: "bold", padding: "8px 18px", borderRadius: 8, backgroundColor: C.card, color: gs.message.includes("KAZANÇ") ? C.green : gs.message.includes("KAYIP") ? C.red : C.white }}>{gs.message}</div>
+            <div style={{ fontSize: 14, fontWeight: "bold", padding: "8px 18px", borderRadius: 8, backgroundColor: C.card, color: gs.message.startsWith("WIN") ? C.green : gs.message.startsWith("LOSS") ? C.red : C.white }}>{gs.message}</div>
           )}
 
           {(aiLoading || aiData) && !gs?.gameOver && (
             <div style={{ width: "100%", padding: "10px 16px", borderRadius: 10, backgroundColor: "#1a1a2e", border: "1px solid #6644aa", display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 16 }}>🤖</span>
               {aiLoading ? (
-                <span style={{ color: "#aaaadd", fontSize: 13 }}>AI analiz yapıyor...</span>
+                <span style={{ color: "#aaaadd", fontSize: 13 }}>AI analyzing...</span>
               ) : aiData ? (
                 <span style={{ fontSize: 13 }}>
                   <span style={{ color: "#aaaadd" }}>AI: </span>
                   <span style={{ color: aiData.side === "B" ? C.blue : aiData.side === "P" ? C.red : C.gray, fontWeight: "bold" }}>
-                    {aiData.side === "B" ? "BANKER" : aiData.side === "P" ? "PLAYER" : "NÖTR"}
+                    {aiData.side === "B" ? "BANKER" : aiData.side === "P" ? "PLAYER" : "NEUTRAL"}
                   </span>
                   {aiData.confidence && (
                     <span style={{ color: aiData.confidence === "HIGH" ? C.green : aiData.confidence === "LOW" ? C.red : "#ffaa44", fontSize: 11, marginLeft: 4 }}>
@@ -335,11 +470,11 @@ export default function App() {
           {gs?.gameOver ? (
             <div style={{ textAlign: "center", padding: 24, width: "100%" }}>
               <div style={{ fontSize: 48, fontWeight: "bold", color: C.gold, marginBottom: 8 }}>GAME OVER</div>
-              <div style={{ color: C.green, fontSize: 20, marginBottom: 8 }}>Bakiye: {gs.balance?.toFixed(2)}</div>
-              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>Yeni birim: {gs.balance ? (gs.balance * 0.005).toFixed(2) : "—"}</div>
-              <button style={{ ...S.btnGold, marginBottom: 12 }} onClick={resetGame} disabled={loading}>{loading ? "..." : "Yeniden Oyna"}</button>
-              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300, marginBottom: 10 }} onClick={() => { const a = document.createElement("a"); a.href = `${api.defaults.baseURL}/game/export`; a.setAttribute("download", ""); const token = localStorage.getItem("bac_token"); fetch(a.href, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.blob()).then(b => { a.href = URL.createObjectURL(b); a.click(); }); }}>Rapor İndir (CSV)</button>
-              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Çıkış Yap</button>
+              <div style={{ color: C.green, fontSize: 20, marginBottom: 8 }}>Balance: {gs.balance?.toFixed(2)}</div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>New unit: {gs.balance ? (gs.balance * 0.005).toFixed(2) : "—"}</div>
+              <button style={{ ...S.btnGold, marginBottom: 12 }} onClick={resetGame} disabled={loading}>{loading ? "..." : "Play Again"}</button>
+              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300, marginBottom: 10 }} onClick={() => { const a = document.createElement("a"); a.href = `${api.defaults.baseURL}/game/export`; a.setAttribute("download", ""); const token = localStorage.getItem("bac_token"); fetch(a.href, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.blob()).then(b => { a.href = URL.createObjectURL(b); a.click(); }); }}>Download Report (CSV)</button>
+              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Sign Out</button>
             </div>
           ) : (
             <>
@@ -350,9 +485,9 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              {lastResult && <div style={{ color: C.gray, fontSize: 13 }}>Son girilen: <span style={{ color: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.gray, fontWeight: "bold" }}>{lastResult}</span></div>}
+              {lastResult && <div style={{ color: C.gray, fontSize: 13 }}>Last entered: <span style={{ color: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.gray, fontWeight: "bold" }}>{lastResult}</span></div>}
               <button onClick={finishGame} disabled={loading} style={{ marginTop: 8, padding: "10px 28px", fontSize: 13, backgroundColor: "transparent", color: "#ff8844", border: "1px solid #ff8844", borderRadius: 8, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
-                Oyunu Bitir
+                End Game
               </button>
             </>
           )}

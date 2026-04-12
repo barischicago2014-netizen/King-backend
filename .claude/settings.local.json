@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(code \"/Users/barisarmagan/Desktop/King backend\")",
+      "Bash(open \"/Users/barisarmagan/Desktop/King backend\")",
+      "Bash(curl -s https://king-backend-ys16.onrender.com/)",
+      "Bash(curl -s -X GET https://king-backend-ys16.onrender.com/admin/send-report -H \"x-admin-secret: baccarat_admin_2024\")",
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(node simulate.js)",
+      "Bash(curl -s https://king-backend.vercel.app/)",
+      "Bash(curl -s -X POST https://king-backend.vercel.app/admin/set-plan -H 'x-admin-secret: baccarat_admin_2024' -H 'Content-Type: application/json' -d '{\"username\": \"baccarat queen\", \"exempt\": true}')",
+      "Bash(curl -s -X POST https://king-backend.vercel.app/admin/set-plan -H 'x-admin-secret: baccarat_admin_2024' -H 'Content-Type: application/json' -d '{\"username\": \"ali\", \"exempt\": true}')",
+      "Bash(curl -s -X POST https://king-backend.vercel.app/admin/set-plan -H 'x-admin-secret: baccarat_admin_2024' -H 'Content-Type: application/json' -d '{\"username\": \"savas\", \"exempt\": true}')"
+    ]
+  }
+}

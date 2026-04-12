@@ -32,18 +32,20 @@ async function connectDB() {
 const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true, lowercase: true },
   password: { type: String, required: true },
+  email: { type: String, default: null, lowercase: true, trim: true },
+  emailVerified: { type: Boolean, default: false },
+  verificationCode: { type: String, default: null },
+  verificationExpiry: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
   termsAcceptedAt: { type: Date, default: null },
   termsAcceptedIp: { type: String, default: null },
   termsVersion: { type: String, default: null },
-  // Plan / erişim
-  role: { type: String, default: "user" }, // "admin" | "vip" | "user"
-  exempt: { type: Boolean, default: false }, // true → ödeme/süre kontrolü yok
-  plan: { type: String, default: "none" }, // "trial" | "active" | "none"
+  role: { type: String, default: "user" },
+  exempt: { type: Boolean, default: false },
+  plan: { type: String, default: "none" },
   subscriptionExpiry: { type: Date, default: null },
   trialUsed: { type: Boolean, default: false },
   whopMemberId: { type: String, default: null },
-  // Günlük süre takibi
   dailyWindowStart: { type: Date, default: null },
   dailyExtraMinutes: { type: Number, default: 0 },
 });
@@ -169,9 +171,9 @@ function processResult(result, s) {
       s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
       s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
     }
-    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Gözlem: ${3 - s.observationCount} el daha` : "Gözlem bitti — bahis başlıyor", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Observation: ${3 - s.observationCount} hands remaining` : "Observation done — betting resumes", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
-  if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " sonuc daha girin", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+  if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " more results needed", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   // leader: 3 setup eli dahil tam geçmişe bakarak hesapla
   const leader = getLeader(s.bpHistory);
   if (r === "T") {
@@ -195,8 +197,8 @@ function processResult(result, s) {
     if (s.handLog) s.handLog.push(handEntry);
     if (s.balance > s.maxWin) s.maxWin = s.balance;
     const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
-    const commMsg = commission > 0 ? ` (komisyon -${commission})` : "";
-    const msg = `KAZANÇ +${netWin}${commMsg}`;
+    const commMsg = commission > 0 ? ` (commission -${commission})` : "";
+    const msg = `WIN +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
     // Baraj aktifse targetMax'ı hedef al, yoksa maxWin — tek elde maxWin+1 birime ulaş
     const baseTarget = s.targetMax !== null ? s.targetMax : s.maxWin;
@@ -211,7 +213,7 @@ function processResult(result, s) {
     const gameOverTarget = s.targetMax !== null ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
-      return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Hedefe ulaşıldı! (Hedef: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+      return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Target reached! (Target: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
     }
     return { win: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: msg, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   } else {
@@ -223,12 +225,12 @@ function processResult(result, s) {
     // 3 üst üste kayıp → 3 el gözlem moduna gir
     if (s.consecutiveLosses >= 3) {
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 kayıp — 3 el gözlem başlıyor", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 losses — entering 3-hand observation", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
     }
     // Her kayıpta seçenek flip: B→P→B; 1. kayıpta birim 2, 2. kayıpta birim 1
     s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-    return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "KAYIP -" + s.currentUnit + " birim", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "LOSS -" + s.currentUnit + " units", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
 
@@ -278,14 +280,78 @@ function checkAccess(req, res, next) {
   return next(); // Şimdilik açık, DB kontrolü aşağıda
 }
 
+app.post("/signup", async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    if (!username || !email || !password) return res.status(400).json({ message: "All fields are required" });
+    if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+    const existing = await User.findOne({ $or: [{ username: username.toLowerCase() }, { email: email.toLowerCase() }] });
+    if (existing) return res.status(400).json({ message: "Username or email already in use" });
+    const hashed = await bcrypt.hash(password, 10);
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    const user = await User.create({ username: username.toLowerCase(), email: email.toLowerCase(), password: hashed, verificationCode: code, verificationExpiry: expiry });
+    // Send verification email
+    if (resendClient) {
+      await resendClient.emails.send({
+        from: "King Strategy <noreply@king-strategy.com>",
+        to: email,
+        subject: "Verify your email — King Strategy",
+        html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#061a0e;color:#fff;border-radius:12px"><h2 style="color:#ffd700;margin-bottom:8px">King Strategy</h2><p style="color:#aaa;margin-bottom:24px">Welcome! Please verify your email to continue.</p><div style="background:#0f3520;border:1px solid #1a5a30;border-radius:8px;padding:24px;text-align:center;margin-bottom:24px"><p style="color:#aaa;margin:0 0 8px;font-size:13px">Your verification code</p><div style="font-size:36px;font-weight:bold;color:#ffd700;letter-spacing:8px">${code}</div><p style="color:#666;margin:8px 0 0;font-size:12px">Expires in 15 minutes</p></div><p style="color:#666;font-size:12px">If you did not create an account, ignore this email.</p></div>`
+      });
+    }
+    return res.json({ ok: true, message: "Verification code sent to your email" });
+  } catch (err) { return res.status(500).json({ message: err.message }); }
+});
+
+app.post("/verify-email", async (req, res) => {
+  try {
+    const { username, code } = req.body;
+    if (!username || !code) return res.status(400).json({ message: "Username and code required" });
+    const user = await User.findOne({ username: username.toLowerCase() });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (user.emailVerified) return res.status(400).json({ message: "Email already verified" });
+    if (!user.verificationCode || user.verificationCode !== code) return res.status(400).json({ message: "Invalid code" });
+    if (user.verificationExpiry < new Date()) return res.status(400).json({ message: "Code expired — please sign up again" });
+    user.emailVerified = true;
+    user.verificationCode = null;
+    user.verificationExpiry = null;
+    await user.save();
+    return res.json({ ok: true, message: "Email verified successfully" });
+  } catch (err) { return res.status(500).json({ message: err.message }); }
+});
+
+app.post("/resend-code", async (req, res) => {
+  try {
+    const { username } = req.body;
+    const user = await User.findOne({ username: username.toLowerCase() });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (user.emailVerified) return res.status(400).json({ message: "Already verified" });
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    user.verificationCode = code;
+    user.verificationExpiry = new Date(Date.now() + 15 * 60 * 1000);
+    await user.save();
+    if (resendClient) {
+      await resendClient.emails.send({
+        from: "King Strategy <noreply@king-strategy.com>",
+        to: user.email,
+        subject: "New verification code — King Strategy",
+        html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#061a0e;color:#fff;border-radius:12px"><h2 style="color:#ffd700">King Strategy</h2><div style="background:#0f3520;border:1px solid #1a5a30;border-radius:8px;padding:24px;text-align:center"><p style="color:#aaa;margin:0 0 8px;font-size:13px">Your new verification code</p><div style="font-size:36px;font-weight:bold;color:#ffd700;letter-spacing:8px">${code}</div><p style="color:#666;margin:8px 0 0;font-size:12px">Expires in 15 minutes</p></div></div>`
+      });
+    }
+    return res.json({ ok: true, message: "New code sent" });
+  } catch (err) { return res.status(500).json({ message: err.message }); }
+});
+
 app.post("/login", async (req, res) => {
   try {
     const { username, password, termsAccepted } = req.body;
-    if (!username || !password) return res.status(400).json({ message: "Kullanici adi ve sifre gerekli" });
+    if (!username || !password) return res.status(400).json({ message: "Username and password are required" });
     const user = await User.findOne({ username: username.toLowerCase() });
-    if (!user) return res.status(400).json({ message: "Kullanici bulunamadi" });
+    if (!user) return res.status(400).json({ message: "User not found" });
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(400).json({ message: "Sifre yanlis" });
+    if (!match) return res.status(400).json({ message: "Incorrect password" });
+    if (!user.emailVerified && !user.exempt && user.role !== "admin") return res.status(403).json({ message: "Please verify your email first", code: "EMAIL_NOT_VERIFIED", username: user.username });
     // Terms of Use kabulunu kaydet
     if (termsAccepted) {
       const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
@@ -504,6 +570,7 @@ app.get("/game/export", auth, async (req, res) => {
 });
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 app.post("/game/analysis", authWithPlan, async (req, res) => {
   try {
@@ -512,7 +579,7 @@ app.post("/game/analysis", authWithPlan, async (req, res) => {
     if (!session) return res.status(404).json({ message: "Aktif oyun yok" });
     const history = session.bpHistory.slice(-20);
     if (history.length < 5) return res.json({ ok: false, side: null, reason: "Yeterli veri yok" });
-    const prompt = "Baccarat el analizi. Son " + history.length + " sonuc: " + history.join(",") + "\nBakiye: " + fmt(session.balance) + ", Bankroll: " + session.bankroll + ", Risk: L" + session.lossLevel + "\nSadece JSON: {\"side\":\"B\"|\"P\"|\"NEUTRAL\",\"reason\":\"max 8 kelime Turkce\"}";
+    const prompt = "Baccarat hand analysis. Last " + history.length + " results: " + history.join(",") + "\nBalance: " + fmt(session.balance) + ", Bankroll: " + session.bankroll + ", Risk: L" + session.lossLevel + "\nRespond only with JSON: {\"side\":\"B\"|\"P\"|\"NEUTRAL\",\"reason\":\"max 8 words English\"}";
     const msg = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 80, messages: [{ role: "user", content: prompt }] });
     const parsed = JSON.parse(msg.content[0].text.trim());
     return res.json({ ok: true, side: parsed.side, reason: parsed.reason });
