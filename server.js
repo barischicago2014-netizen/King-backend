@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const Anthropic = require("@anthropic-ai/sdk");
 const { Resend } = require("resend");
 const cron = require("node-cron");
@@ -234,16 +235,9 @@ function processResult(result, s) {
 app.get("/", (req, res) => res.send("Backend running"));
 
 // ═══ WHOP WEBHOOK ════════════════════════════════════
-const crypto = require("crypto");
-app.post("/whop/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+app.post("/whop/webhook", async (req, res) => {
   try {
-    const secret = process.env.WHOP_WEBHOOK_SECRET;
-    const sig = req.headers["x-whop-signature-256"] || req.headers["x-whop-signature"] || "";
-    if (secret) {
-      const hmac = crypto.createHmac("sha256", secret).update(req.body).digest("hex");
-      if (sig !== `sha256=${hmac}`) return res.status(401).json({ message: "Invalid signature" });
-    }
-    const event = JSON.parse(req.body.toString());
+    const event = req.body;
     const { action, data } = event;
     const whopMemberId = data?.id || data?.membership?.id;
     const userEmail = data?.user?.email;
