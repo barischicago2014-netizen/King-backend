@@ -362,7 +362,7 @@ app.post("/login", async (req, res) => {
     }
     const token = jwt.sign({ id: String(user._id), username: user.username }, JWT_SECRET, { expiresIn: "7d" });
     return res.json({ token, username: user.username, termsAccepted: !!user.termsAcceptedAt });
-  } catch (err) { return res.status(500).json({ message: "Giris basarisiz", error: err.message }); }
+  } catch (err) { return res.status(500).json({ message: "Login failed", error: err.message }); }
 });
 
 async function createUser(username, password) {
@@ -373,6 +373,33 @@ async function createUser(username, password) {
   return { ok: true, id: user._id };
 }
 
+
+// Bootstrap: create or repair admin users
+app.post("/admin/bootstrap", async (req, res) => {
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Unauthorized" });
+  try {
+    await connectDB();
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ message: "username and password required" });
+    let user = await User.findOne({ username: username.toLowerCase() });
+    if (user) {
+      // Repair existing user: mark as admin + exempt + emailVerified
+      const hashed = await bcrypt.hash(password, 10);
+      user.password = hashed;
+      user.role = "admin";
+      user.exempt = true;
+      user.emailVerified = true;
+      await user.save();
+      return res.json({ ok: true, action: "repaired", username: user.username });
+    } else {
+      // Create new admin user
+      const hashed = await bcrypt.hash(password, 10);
+      user = await User.create({ username: username.toLowerCase(), password: hashed, role: "admin", exempt: true, emailVerified: true });
+      return res.json({ ok: true, action: "created", username: user.username });
+    }
+  } catch (err) { return res.status(500).json({ message: err.message }); }
+});
 
 app.post("/game/start", authWithPlan, async (req, res) => {
   try {
@@ -450,12 +477,13 @@ app.post("/admin/set-plan", async (req, res) => {
   const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   try {
-    const { username, plan, months, exempt, role } = req.body;
+    const { username, plan, months, exempt, role, emailVerified } = req.body;
     const user = await User.findOne({ username: username.toLowerCase() });
     if (!user) return res.status(404).json({ message: "Kullanici bulunamadi" });
     if (plan !== undefined) user.plan = plan;
     if (exempt !== undefined) user.exempt = exempt;
     if (role !== undefined) user.role = role;
+    if (emailVerified !== undefined) user.emailVerified = emailVerified;
     if (months) {
       const expiry = new Date();
       expiry.setMonth(expiry.getMonth() + months);
