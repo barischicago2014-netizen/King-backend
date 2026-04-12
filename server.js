@@ -101,6 +101,7 @@ async function authWithPlan(req, res, next) {
   const token = (req.headers.authorization || "").split(" ")[1];
   if (!token) return res.status(401).json({ message: "Token gerekli" });
   try {
+    await connectDB();
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ message: "Kullanici bulunamadi" });
@@ -283,6 +284,7 @@ function checkAccess(req, res, next) {
 
 app.post("/signup", async (req, res) => {
   try {
+    await connectDB();
     const { username, email, password } = req.body;
     if (!username || !email || !password) return res.status(400).json({ message: "All fields are required" });
     if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
@@ -307,6 +309,7 @@ app.post("/signup", async (req, res) => {
 
 app.post("/verify-email", async (req, res) => {
   try {
+    await connectDB();
     const { username, code } = req.body;
     if (!username || !code) return res.status(400).json({ message: "Username and code required" });
     const user = await User.findOne({ username: username.toLowerCase() });
@@ -324,6 +327,7 @@ app.post("/verify-email", async (req, res) => {
 
 app.post("/resend-code", async (req, res) => {
   try {
+    await connectDB();
     const { username } = req.body;
     const user = await User.findOne({ username: username.toLowerCase() });
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -346,6 +350,7 @@ app.post("/resend-code", async (req, res) => {
 
 app.post("/login", async (req, res) => {
   try {
+    await connectDB();
     const { username, password, termsAccepted } = req.body;
     if (!username || !password) return res.status(400).json({ message: "Username and password are required" });
     const user = await User.findOne({ username: username.toLowerCase() });
