@@ -184,7 +184,7 @@ function processResult(result, s) {
   }
   if (!s.currentSuggestion) {
     s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
-    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "Sistem hazır — ilk bahis: " + s.currentSuggestion, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "System ready — first bet: " + s.currentSuggestion, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   const win = r === s.currentSuggestion;
   const handEntry = { handNo: s.handLog ? s.handLog.length + 1 : 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: fmt(s.currentUnit * s.baseUnit), result: r, win, phase: s.phase, timestamp: new Date() };
@@ -222,6 +222,7 @@ function processResult(result, s) {
     s.balance = fmt(s.balance - s.currentUnit * s.baseUnit);
     handEntry.balanceAfter = s.balance;
     if (s.handLog) s.handLog.push(handEntry);
+    const lostUnit = s.currentUnit;
     applyLossLevel(s);
     s.consecutiveLosses++;
     // 3 üst üste kayıp → 3 el gözlem moduna gir
@@ -232,7 +233,7 @@ function processResult(result, s) {
     // Her kayıpta seçenek flip: B→P→B; 1. kayıpta birim 2, 2. kayıpta birim 1
     s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-    return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "LOSS -" + s.currentUnit + " units", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "LOSS -" + lostUnit + " units", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
 
@@ -414,7 +415,7 @@ app.post("/game/start", authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
-    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin, sistem baslasın" });
+    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter 3 results to start" });
   } catch (err) { return res.status(500).json({ message: "Oyun baslatılamadi", error: err.message }); }
 });
 
@@ -453,7 +454,7 @@ app.post("/game/reset", authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.005);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null, fullHistory: [], bpHistory: [], consecutiveLosses: 0, sessionHandCount: 0, phase: "waiting", currentSuggestion: null, currentUnit: 1 });
-    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "3 sonuc girin" });
+    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter 3 results to start" });
   } catch (err) { return res.status(500).json({ message: "Reset basarisiz", error: err.message }); }
 });
 
