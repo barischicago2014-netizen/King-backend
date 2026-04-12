@@ -157,7 +157,7 @@ function processResult(result, s) {
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
     // Bahis mevcut bakiyeyi geçemez
-    const maxAffordable = Math.floor(s.balance / roundBet(s.baseUnit));
+    const maxAffordable = Math.floor(s.balance / fmt(s.baseUnit));
     if (nextUnit > maxAffordable && maxAffordable > 0) nextUnit = maxAffordable;
     s.currentUnit = nextUnit;
     // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2
