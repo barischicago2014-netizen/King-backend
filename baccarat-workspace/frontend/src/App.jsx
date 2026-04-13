@@ -26,7 +26,8 @@ btnGhost: { padding: "9px 20px", fontSize: 13, backgroundColor: "transparent", c
 };
 
 export default function App() {
-  const [screen, setScreen] = useState("landing"); // landing | login | signup | verify | subscribe | bankroll | game
+  const [screen, setScreen] = useState("landing"); // landing | login | signup | verify | subscribe | bankroll | game | roulette-bankroll | roulette-game
+  const [selectedGame, setSelectedGame] = useState("baccarat"); // "baccarat" | "roulette"
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ username: "", password: "" });
   const [signupForm, setSignupForm] = useState({ username: "", email: "", password: "" });
@@ -44,6 +45,11 @@ export default function App() {
   const [flash, setFlash] = useState(null);
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  // Roulette state
+  const [rgs, setRgs] = useState(null);
+  const [rSessionId, setRSessionId] = useState(null);
+  const [rLastResult, setRLastResult] = useState(null);
+  const rResultInFlight = useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -67,7 +73,7 @@ export default function App() {
       localStorage.setItem("bac_user", res.data.username);
       setUser({ token: res.data.token, username: res.data.username });
       setForm({ username: "", password: "" });
-      setScreen("bankroll");
+      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : "bankroll");
     } catch (err) {
       const code = err.response?.data?.code;
       const username = err.response?.data?.username;
@@ -207,6 +213,71 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+  async function handleRouletteBankrollStart() {
+    setBankrollError("");
+    const amount = parseFloat(bankrollInput);
+    if (!amount || amount <= 0) { setBankrollError("Please enter a valid amount"); return; }
+    setLoading(true);
+    try {
+      const res = await api.post("/roulette/start", { bankroll: amount });
+      setRgs(res.data);
+      setRSessionId(res.data.sessionId || null);
+      setRLastResult(null);
+      setBankrollInput("");
+      setScreen("roulette-game");
+    } catch (err) {
+      setBankrollError(err.response?.data?.message || "An error occurred");
+    } finally { setLoading(false); }
+  }
+
+  async function addRouletteResult(result) {
+    if (rResultInFlight.current || rgs?.gameOver) return;
+    rResultInFlight.current = true;
+    setLoading(true);
+    try {
+      const res = await api.post("/roulette/result", { result, sessionId: rSessionId });
+      rResultInFlight.current = false;
+      setLoading(false);
+      setRLastResult(result);
+      if (res.data.sessionId) setRSessionId(res.data.sessionId);
+      setRgs((prev) => ({ ...prev, ...res.data }));
+      const net = (res.data.lhWin ? 1 : -1) * (res.data.lhUnit || 1) * (res.data.baseUnit || 5)
+                + (res.data.rbWin ? 1 : -1) * (res.data.rbUnit || 1) * (res.data.baseUnit || 5);
+      if (result === "Z") showFlash("ZERO", C.gray);
+      else if (res.data.lhWin && res.data.rbWin) showFlash("+" + res.data.baseUnit * 2, C.green);
+      else if (!res.data.lhWin && !res.data.rbWin) showFlash("-" + res.data.baseUnit * 2, C.red);
+      else showFlash("±" + res.data.baseUnit, "#ffaa44");
+    } catch (err) {
+      rResultInFlight.current = false;
+      setLoading(false);
+      if (err.response?.status === 404) setScreen("roulette-bankroll");
+    }
+  }
+
+  async function finishRouletteGame() {
+    if (!window.confirm("Are you sure you want to end the game? A new game will start with your current balance.")) return;
+    setLoading(true);
+    try {
+      const res = await api.post("/roulette/finish");
+      const newBankroll = res.data.balance;
+      const startRes = await api.post("/roulette/reset", { bankroll: newBankroll });
+      setRgs({ ...startRes.data, scoreboard: { L: 0, H: 0, R: 0, B: 0, Z: 0 }, history: [] });
+      setRSessionId(startRes.data.sessionId || null);
+      setRLastResult(null);
+    } finally { setLoading(false); }
+  }
+
+  async function resetRouletteGame() {
+    const newBankroll = rgs?.balance || rgs?.bankroll || 100;
+    setLoading(true);
+    try {
+      const res = await api.post("/roulette/reset", { bankroll: newBankroll });
+      setRgs({ ...res.data, scoreboard: { L: 0, H: 0, R: 0, B: 0, Z: 0 }, history: [] });
+      setRSessionId(res.data.sessionId || null);
+      setRLastResult(null);
+    } finally { setLoading(false); }
+  }
+
   async function resetGame() {
     const newBankroll = gs?.balance || gs?.bankroll || 100;
     setLoading(true);
@@ -259,7 +330,8 @@ export default function App() {
           <div style={{ fontSize: 64, marginBottom: 4 }}>♠</div>
           <h1 style={{ fontSize: 42, color: C.gold, margin: "0 0 8px", letterSpacing: 2 }}>BACCARAT</h1>
           <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strategy System</p>
-          <button style={{ ...S.btnGold, marginBottom: 14 }} onClick={() => { setFormError(""); setScreen("login"); }}>Sign In</button>
+          <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("baccarat"); setScreen("login"); }}>Sign In — Baccarat</button>
+          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#cc2233", border: "2px solid #cc2233", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("roulette"); setScreen("login"); }}>Sign In — Roulette</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer" }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
         </div>
       </div>
@@ -493,6 +565,174 @@ export default function App() {
           )}
 
           <HistoryChips history={gs?.history} />
+        </div>
+        <FlashOverlay />
+      </div>
+    );
+  }
+
+  // ═══ ROULETTE BANKROLL ══════════════════════════════════════════════════════
+  if (screen === "roulette-bankroll") {
+    const preview = parseFloat(bankrollInput);
+    const unitPreview = preview > 0 ? (preview * 0.005).toFixed(2) : null;
+    return (
+      <div style={S.page}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: C.card, border: "1px solid #cc2233", padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 36, marginBottom: 4 }}>🎰</div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 4 }}>👤 {user?.username}</div>
+              <h2 style={{ color: "#cc2233", fontSize: 22, margin: 0 }}>Roulette — Enter Bankroll</h2>
+            </div>
+            <input style={{ ...S.input, marginBottom: 8, fontSize: 22, textAlign: "center" }} type="number" placeholder="0" value={bankrollInput} onChange={(e) => setBankrollInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRouletteBankrollStart()} autoFocus />
+            {unitPreview && <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>Unit value: <span style={{ color: "#cc2233" }}>{unitPreview}</span> (bankroll × 0.5%)</p>}
+            {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
+            <button style={{ ...S.btnGold, backgroundColor: "#cc2233", color: C.white, marginBottom: 10 }} onClick={handleRouletteBankrollStart} disabled={loading}>{loading ? "..." : "Start Roulette"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Sign Out</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ ROULETTE GAME ══════════════════════════════════════════════════════════
+  if (screen === "roulette-game") {
+    const rsc = rgs?.scoreboard || { L: 0, H: 0, R: 0, B: 0, Z: 0 };
+    const rphase = rgs?.phase;
+    const rTarget = (rgs?.targetMax ?? rgs?.bankroll) != null ? fmt2((rgs?.targetMax ?? rgs?.bankroll) + 2 * (rgs?.baseUnit ?? 0)) : null;
+
+    function fmt2(n) { return n != null ? parseFloat(n.toFixed(2)) : null; }
+
+    const rBtnStyle = (bg, isLast) => ({
+      flex: 1, maxWidth: 150, height: 90, fontSize: 20, fontWeight: "bold",
+      backgroundColor: bg, color: C.white,
+      border: isLast ? `3px solid ${C.gold}` : "3px solid transparent",
+      borderRadius: 14, cursor: "pointer", display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", gap: 3,
+      WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
+    });
+
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#cc2233", fontWeight: "bold", fontSize: 20 }}>{rgs?.balance?.toFixed(2) ?? "—"}</div>
+            <div style={{ color: C.gray, fontSize: 11 }}>unit: {rgs?.baseUnit?.toFixed(2)}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: C.gray, fontSize: 10 }}>Target: <span style={{ color: C.green }}>{rTarget ?? "—"}</span></div>
+            {rgs?.lossLevel > 0 && <div style={{ color: "#ff8844", fontSize: 10 }}>Risk: L{rgs.lossLevel}</div>}
+          </div>
+        </div>
+
+        <div style={S.content}>
+          {/* Scoreboards */}
+          <div style={{ ...S.scoreboard, flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
+              {[{ l: "LOW", k: "L", c: C.blue }, { l: "HIGH", k: "H", c: C.red }].map(({ l, k, c }) => (
+                <div key={k} style={{ textAlign: "center" }}>
+                  <div style={{ color: c, fontSize: 13, fontWeight: "bold" }}>{l}</div>
+                  <div style={{ fontSize: 22, fontWeight: "bold" }}>{rsc[k]}</div>
+                </div>
+              ))}
+              <div style={{ width: 1, backgroundColor: C.border }} />
+              {[{ l: "RED", k: "R", c: "#cc2233" }, { l: "BLK", k: "B", c: C.gray }, { l: "ZERO", k: "Z", c: "#1a6633" }].map(({ l, k, c }) => (
+                <div key={k} style={{ textAlign: "center" }}>
+                  <div style={{ color: c, fontSize: 13, fontWeight: "bold" }}>{l}</div>
+                  <div style={{ fontSize: 22, fontWeight: "bold" }}>{rsc[k]}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recommendation box */}
+          {rgs && !rgs.gameOver && (
+            <div style={S.recBox}>
+              {rphase === "waiting" ? (
+                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>SETUP</div>
+                <div style={{ color: C.gray, fontSize: 18 }}>{rgs.message}</div></>
+              ) : rphase === "observation" ? (
+                <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>OBSERVATION</div>
+                <div style={{ color: "#ffaa44", fontSize: 16 }}>{rgs.message}</div></>
+              ) : rgs.lhSuggestion ? (
+                <>
+                  <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SYSTEM RECOMMENDATION</div>
+                  <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+                    <div style={{ textAlign: "center", border: rgs.primaryTrack === "LH" ? `2px solid ${C.gold}` : "1px solid #333", borderRadius: 8, padding: "8px 16px" }}>
+                      <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>LOW / HIGH</div>
+                      <div style={{ fontSize: 24, fontWeight: "bold", color: rgs.lhSuggestion === "L" ? C.blue : C.red }}>{rgs.lhSuggestion === "L" ? "LOW" : "HIGH"}</div>
+                      <div style={{ color: C.gold, fontSize: 14 }}>{rgs.lhUnit} unit{rgs.lhUnit > 1 ? "s" : ""}</div>
+                    </div>
+                    <div style={{ textAlign: "center", border: rgs.primaryTrack === "RB" ? `2px solid ${C.gold}` : "1px solid #333", borderRadius: 8, padding: "8px 16px" }}>
+                      <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>RED / BLACK</div>
+                      <div style={{ fontSize: 24, fontWeight: "bold", color: rgs.rbSuggestion === "R" ? "#cc2233" : C.gray }}>{rgs.rbSuggestion === "R" ? "RED" : "BLACK"}</div>
+                      <div style={{ color: C.gold, fontSize: 14 }}>{rgs.rbUnit} unit{rgs.rbUnit > 1 ? "s" : ""}</div>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          )}
+
+          {/* Message */}
+          {rgs?.message && !rgs.gameOver && rphase === "active" && (
+            <div style={{ fontSize: 13, fontWeight: "bold", padding: "8px 18px", borderRadius: 8, backgroundColor: C.card, color: rgs.message.startsWith("WIN") ? C.green : rgs.message.startsWith("LOSS") || rgs.message.startsWith("ZERO") ? C.red : "#ffaa44" }}>{rgs.message}</div>
+          )}
+
+          {/* Game Over or Buttons */}
+          {rgs?.gameOver ? (
+            <div style={{ textAlign: "center", padding: 24, width: "100%" }}>
+              <div style={{ fontSize: 48, fontWeight: "bold", color: "#cc2233", marginBottom: 8 }}>GAME OVER</div>
+              <div style={{ color: C.green, fontSize: 20, marginBottom: 8 }}>Balance: {rgs.balance?.toFixed(2)}</div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>New unit: {rgs.balance ? (rgs.balance * 0.005).toFixed(2) : "—"}</div>
+              <button style={{ ...S.btnGold, backgroundColor: "#cc2233", color: C.white, marginBottom: 12 }} onClick={resetRouletteGame} disabled={loading}>{loading ? "..." : "Play Again"}</button>
+              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Sign Out</button>
+            </div>
+          ) : (
+            <>
+              {/* 2x2 grid + ZERO */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 10, width: "100%", justifyContent: "center" }}>
+                  <button onClick={() => addRouletteResult("LR")} style={rBtnStyle("#8B0000", rLastResult === "LR")}>
+                    LOW<span style={{ fontSize: 11, opacity: 0.85 }}>● RED</span>
+                  </button>
+                  <button onClick={() => addRouletteResult("HR")} style={rBtnStyle("#cc2233", rLastResult === "HR")}>
+                    HIGH<span style={{ fontSize: 11, opacity: 0.85 }}>● RED</span>
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 10, width: "100%", justifyContent: "center" }}>
+                  <button onClick={() => addRouletteResult("LB")} style={rBtnStyle("#333", rLastResult === "LB")}>
+                    LOW<span style={{ fontSize: 11, opacity: 0.85 }}>● BLACK</span>
+                  </button>
+                  <button onClick={() => addRouletteResult("HB")} style={rBtnStyle("#555", rLastResult === "HB")}>
+                    HIGH<span style={{ fontSize: 11, opacity: 0.85 }}>● BLACK</span>
+                  </button>
+                </div>
+                <button onClick={() => addRouletteResult("Z")} style={{ width: "60%", maxWidth: 200, height: 56, fontSize: 16, fontWeight: "bold", backgroundColor: "#1a6633", color: C.white, border: rLastResult === "Z" ? `3px solid ${C.gold}` : "3px solid transparent", borderRadius: 14, cursor: "pointer", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+                  ZERO (0 / 00)
+                </button>
+              </div>
+              {rLastResult && (
+                <div style={{ color: C.gray, fontSize: 13 }}>Last entered: <span style={{ fontWeight: "bold", color: rLastResult === "Z" ? "#1a6633" : rLastResult.includes("R") ? "#cc2233" : C.gray }}>{rLastResult === "LR" ? "LOW-RED" : rLastResult === "LB" ? "LOW-BLACK" : rLastResult === "HR" ? "HIGH-RED" : rLastResult === "HB" ? "HIGH-BLACK" : "ZERO"}</span></div>
+              )}
+              <button onClick={finishRouletteGame} disabled={loading} style={{ marginTop: 8, padding: "10px 28px", fontSize: 13, backgroundColor: "transparent", color: "#ff8844", border: "1px solid #ff8844", borderRadius: 8, cursor: "pointer" }}>End Game</button>
+            </>
+          )}
+
+          {/* History chips */}
+          {rgs?.history && rgs.history.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center", maxWidth: 380 }}>
+              {[...rgs.history].reverse().map((r, i) => (
+                <span key={i} style={{ width: 36, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, fontWeight: "bold", fontSize: 11,
+                  backgroundColor: r === "Z" ? "#1a4a2a" : r === "LR" ? "#5a0000" : r === "HR" ? "#8B0000" : r === "LB" ? "#1a1a1a" : "#2a2a2a",
+                  color: r === "Z" ? "#44cc77" : r.includes("R") ? "#ff6666" : C.gray,
+                  border: `1px solid ${C.border}` }}>
+                  {r === "Z" ? "0" : r === "LR" ? "L🔴" : r === "HR" ? "H🔴" : r === "LB" ? "L⚫" : "H⚫"}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <FlashOverlay />
       </div>
