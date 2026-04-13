@@ -100,26 +100,19 @@ const RouletteSessionSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   startedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
-  fullHistory: [{ type: String }],
-  lhHistory: [{ type: String }],
-  rbHistory: [{ type: String }],
-  lhSuggestion: { type: String, default: null },
-  lhUnit: { type: Number, default: 1 },
-  lhConsecLosses: { type: Number, default: 0 },
-  rbSuggestion: { type: String, default: null },
-  rbUnit: { type: Number, default: 1 },
-  rbConsecLosses: { type: Number, default: 0 },
-  primaryTrack: { type: String, default: "LH" },
+  fullHistory: [{ type: String }],   // "L", "H", "Z"
+  suggestion: { type: String, default: null },
+  currentUnit: { type: Number, default: 1 },
+  consecutiveLosses: { type: Number, default: 0 },
   phase: { type: String, default: "waiting" },
   observationCount: { type: Number, default: 0 },
   lossLevel: { type: Number, default: 0 },
   lossStep: { type: Number, default: 0 },
   targetMax: { type: Number, default: null },
   handLog: [{
-    handNo: Number, lhSuggestion: String, rbSuggestion: String,
-    lhUnit: Number, rbUnit: Number, result: String,
-    lhWin: Boolean, rbWin: Boolean, balanceAfter: Number,
-    phase: String, timestamp: Date,
+    handNo: Number, suggestion: String, unit: Number,
+    betAmount: Number, result: String, win: Boolean,
+    balanceAfter: Number, phase: String, timestamp: Date,
   }],
 });
 const RouletteSession = mongoose.models.RouletteSession || mongoose.model("RouletteSession", RouletteSessionSchema);
@@ -282,18 +275,12 @@ function getLeaderLH(arr) {
   return l >= h ? "L" : "H";
 }
 
-function getLeaderRB(arr) {
-  const r = arr.filter(x => x === "R").length;
-  const b = arr.filter(x => x === "B").length;
-  return r >= b ? "R" : "B";
-}
-
 function getRouletteScoreboard(fullHistory) {
-  const sc = { L: 0, H: 0, R: 0, B: 0, Z: 0 };
+  const sc = { L: 0, H: 0, Z: 0 };
   for (const r of fullHistory) {
-    if (r === "Z") { sc.Z++; continue; }
-    if (r[0] === "L") sc.L++; else sc.H++;
-    if (r[1] === "R") sc.R++; else sc.B++;
+    if (r === "Z") sc.Z++;
+    else if (r === "L") sc.L++;
+    else sc.H++;
   }
   return sc;
 }
@@ -304,142 +291,101 @@ function rouletteProcessResult(result, s) {
   const scoreboard = getRouletteScoreboard(s.fullHistory);
   const history = [...s.fullHistory].slice(-20);
   const isZero = result === "Z";
-  const lhSignal = isZero ? null : result[0]; // "L" or "H"
-  const rbSignal = isZero ? null : result[1]; // "R" or "B"
-  if (!isZero) { s.lhHistory.push(lhSignal); s.rbHistory.push(rbSignal); }
+  if (!isZero) s.fullHistory; // already pushed above — non-zero is "L" or "H"
 
   const buildResponse = (extra) => ({
     scoreboard, history,
     balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit,
     maxWin: s.maxWin, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null,
-    phase: s.phase, primaryTrack: s.primaryTrack,
-    lhSuggestion: s.lhSuggestion, lhUnit: s.lhUnit,
-    rbSuggestion: s.rbSuggestion, rbUnit: s.rbUnit,
+    phase: s.phase,
+    suggestion: s.suggestion, unit: s.currentUnit,
     ...extra,
   });
 
   // ── WAITING phase ──────────────────────────────────────────────────────────
   if (s.phase === "waiting") {
-    if (s.lhHistory.length < 3) {
-      return buildResponse({ message: (3 - s.lhHistory.length) + " more results needed" });
+    const nonZero = s.fullHistory.filter(x => x !== "Z");
+    if (nonZero.length < 3) {
+      return buildResponse({ message: (3 - nonZero.length) + " more results needed" });
     }
-    s.lhSuggestion = getLeaderLH(s.lhHistory);
-    s.rbSuggestion = getLeaderRB(s.rbHistory);
-    s.lhUnit = 1; s.rbUnit = 1; s.phase = "active";
-    return buildResponse({ message: "System ready — " + (s.lhSuggestion === "L" ? "LOW" : "HIGH") + " / " + (s.rbSuggestion === "R" ? "RED" : "BLACK") });
+    s.suggestion = getLeaderLH(nonZero);
+    s.currentUnit = 1;
+    s.phase = "active";
+    return buildResponse({ message: "System ready — " + (s.suggestion === "L" ? "LOW" : "HIGH") });
   }
 
   // ── OBSERVATION phase ──────────────────────────────────────────────────────
   if (s.phase === "observation") {
     s.observationCount++;
     if (s.observationCount >= 3) {
-      s.phase = "active"; s.observationCount = 0;
-      s.lhConsecLosses = 0; s.rbConsecLosses = 0;
-      const last5lh = s.lhHistory.slice(-5);
-      const last5rb = s.rbHistory.slice(-5);
-      s.lhSuggestion = getLeaderLH(last5lh.length ? last5lh : s.lhHistory);
-      s.rbSuggestion = getLeaderRB(last5rb.length ? last5rb : s.rbHistory);
-      s.lhUnit = 1; s.rbUnit = 1;
-      const lhMargin = Math.abs(last5lh.filter(x => x === "L").length - last5lh.filter(x => x === "H").length);
-      const rbMargin = Math.abs(last5rb.filter(x => x === "R").length - last5rb.filter(x => x === "B").length);
-      s.primaryTrack = lhMargin >= rbMargin ? "LH" : "RB";
+      s.phase = "active"; s.observationCount = 0; s.consecutiveLosses = 0;
+      const last5 = s.fullHistory.filter(x => x !== "Z").slice(-5);
+      s.suggestion = getLeaderLH(last5.length ? last5 : s.fullHistory.filter(x => x !== "Z"));
+      s.currentUnit = 1;
       return buildResponse({ message: "Observation done — betting resumes" });
     }
     return buildResponse({ message: "Observation: " + (3 - s.observationCount) + " hands remaining" });
   }
 
   // ── ACTIVE phase ───────────────────────────────────────────────────────────
-  const lhBet = fmt(s.lhUnit * s.baseUnit);
-  const rbBet = fmt(s.rbUnit * s.baseUnit);
-  const totalBet = fmt(lhBet + rbBet);
+  const betAmount = fmt(s.currentUnit * s.baseUnit);
 
   if (isZero) {
-    // Zero: both tracks lose, no flip
-    s.balance = fmt(s.balance - totalBet);
+    // Zero: lose, no flip
+    s.balance = fmt(s.balance - betAmount);
     applyLossLevel(s);
-    s.lhConsecLosses++;
-    s.rbConsecLosses++;
-    const handEntry = { handNo: (s.handLog ? s.handLog.length + 1 : 1), lhSuggestion: s.lhSuggestion, rbSuggestion: s.rbSuggestion, lhUnit: s.lhUnit, rbUnit: s.rbUnit, result: "Z", lhWin: false, rbWin: false, balanceAfter: s.balance, phase: s.phase, timestamp: new Date() };
+    s.consecutiveLosses++;
+    const handEntry = { handNo: (s.handLog ? s.handLog.length + 1 : 1), suggestion: s.suggestion, unit: s.currentUnit, betAmount, result: "Z", win: false, balanceAfter: s.balance, phase: s.phase, timestamp: new Date() };
     if (s.handLog) s.handLog.push(handEntry);
-    if (s.lhConsecLosses >= 3 || s.rbConsecLosses >= 3) {
-      s.phase = "observation"; s.observationCount = 0; s.lhConsecLosses = 0; s.rbConsecLosses = 0;
+    if (s.consecutiveLosses >= 3) {
+      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
       return buildResponse({ win: false, message: "3 losses — entering 3-hand observation" });
     }
-    s.lhUnit = s.lhConsecLosses === 1 ? 2 : 1;
-    s.rbUnit = s.rbConsecLosses === 1 ? 2 : 1;
-    return buildResponse({ win: false, message: "ZERO — LOSS -" + totalBet });
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
+    return buildResponse({ win: false, message: "ZERO — LOSS -$" + betAmount });
   }
 
   // Non-zero result
-  const lhWin = lhSignal === s.lhSuggestion;
-  const rbWin = rbSignal === s.rbSuggestion;
-  const lhLostUnit = s.lhUnit;
-  const rbLostUnit = s.rbUnit;
+  const win = result === s.suggestion;
+  const lostUnit = s.currentUnit;
 
-  // Update balance
-  s.balance = fmt(s.balance + (lhWin ? lhBet : -lhBet) + (rbWin ? rbBet : -rbBet));
+  s.balance = fmt(s.balance + (win ? betAmount : -betAmount));
   applyLossLevel(s);
   if (s.balance > s.maxWin) s.maxWin = s.balance;
 
-  const handEntry = { handNo: (s.handLog ? s.handLog.length + 1 : 1), lhSuggestion: s.lhSuggestion, rbSuggestion: s.rbSuggestion, lhUnit: s.lhUnit, rbUnit: s.rbUnit, result, lhWin, rbWin, balanceAfter: s.balance, phase: s.phase, timestamp: new Date() };
+  const handEntry = { handNo: (s.handLog ? s.handLog.length + 1 : 1), suggestion: s.suggestion, unit: s.currentUnit, betAmount, result, win, balanceAfter: s.balance, phase: s.phase, timestamp: new Date() };
   if (s.handLog) s.handLog.push(handEntry);
 
-  // Update LH track
-  if (lhWin) {
-    s.lhConsecLosses = 0;
-    s.lhSuggestion = getLeaderLH(s.lhHistory);
-  } else {
-    s.lhConsecLosses++;
-  }
-
-  // Update RB track
-  if (rbWin) {
-    s.rbConsecLosses = 0;
-    s.rbSuggestion = getLeaderRB(s.rbHistory);
-  } else {
-    s.rbConsecLosses++;
-  }
-
-  // Check 3-consecutive trigger (either track)
-  if (s.lhConsecLosses >= 3 || s.rbConsecLosses >= 3) {
-    s.phase = "observation"; s.observationCount = 0; s.lhConsecLosses = 0; s.rbConsecLosses = 0;
-    return buildResponse({ win: lhWin || rbWin, message: "3 losses — entering 3-hand observation" });
-  }
-
-  // Apply loss flip and unit escalation for losing tracks
-  if (!lhWin) {
-    s.lhSuggestion = s.lhSuggestion === "L" ? "H" : "L";
-    s.lhUnit = s.lhConsecLosses === 1 ? 2 : 1;
-  }
-  if (!rbWin) {
-    s.rbSuggestion = s.rbSuggestion === "R" ? "B" : "R";
-    s.rbUnit = s.rbConsecLosses === 1 ? 2 : 1;
-  }
-
-  // Compute next unit for winning tracks (gap-closing)
-  if (lhWin || rbWin) {
+  if (win) {
+    s.consecutiveLosses = 0;
+    s.suggestion = getLeaderLH(s.fullHistory.filter(x => x !== "Z"));
+    // Gap-closing unit
     const baseRef = s.targetMax !== null ? s.targetMax : s.maxWin;
     const gap = baseRef + s.baseUnit - s.balance;
     const nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     const maxAffordable = Math.floor(s.balance / s.baseUnit);
-    const safeUnit = Math.min(nextUnit, maxAffordable > 0 ? maxAffordable : nextUnit);
-    if (lhWin) s.lhUnit = Math.max(1, safeUnit);
-    if (rbWin) s.rbUnit = Math.max(1, safeUnit);
+    s.currentUnit = Math.max(1, Math.min(nextUnit, maxAffordable > 0 ? maxAffordable : nextUnit));
+  } else {
+    s.consecutiveLosses++;
+    if (s.consecutiveLosses >= 3) {
+      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
+      return buildResponse({ win: false, message: "3 losses — entering 3-hand observation" });
+    }
+    s.suggestion = s.suggestion === "L" ? "H" : "L";
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
   }
 
   // Game over check
   const gameOverTarget = fmt((s.targetMax !== null ? s.targetMax : s.bankroll) + 2 * s.baseUnit);
   if (s.balance >= gameOverTarget) {
     s.phase = "gameover";
-    return buildResponse({ gameOver: true, win: true, message: "GAME OVER! Target reached! (Target: " + gameOverTarget + ")" });
+    return buildResponse({ gameOver: true, win: true, message: "GAME OVER! Target reached! (Target: $" + gameOverTarget + ")" });
   }
 
-  const netMsg = (lhWin && rbWin) ? "WIN BOTH +" + fmt(lhBet + rbBet)
-    : lhWin ? "WIN LOW/HIGH +" + lhBet + " | LOSS RED/BLACK -" + rbBet
-    : rbWin ? "WIN RED/BLACK +" + rbBet + " | LOSS LOW/HIGH -" + lhBet
-    : "LOSS -" + fmt(lhLostUnit * s.baseUnit + rbLostUnit * s.baseUnit) + " units";
-
-  return buildResponse({ win: lhWin || rbWin, lhWin, rbWin, message: netMsg });
+  const msg = win
+    ? "WIN +" + betAmount
+    : "LOSS -$" + fmt(lostUnit * s.baseUnit);
+  return buildResponse({ win, message: msg });
 }
 
 // ═══ ROULETTE ROUTES ═════════════════════════════════════════════════════════
@@ -452,7 +398,7 @@ app.post("/roulette/start", authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.005);
     await RouletteSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await RouletteSession.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll });
-    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, R: 0, B: 0, Z: 0 }, phase: "waiting", history: [], lhSuggestion: null, rbSuggestion: null, lhUnit: 1, rbUnit: 1, primaryTrack: "LH", message: "Enter 3 results to start" });
+    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter 3 results to start" });
   } catch (err) { return res.status(500).json({ message: "Start failed", error: err.message }); }
 });
 
@@ -460,13 +406,12 @@ app.post("/roulette/result", authWithPlan, async (req, res) => {
   try {
     await connectDB();
     const { result, sessionId } = req.body;
-    if (!["LR", "LB", "HR", "HB", "Z"].includes(result)) return res.status(400).json({ message: "Invalid result. Use LR, LB, HR, HB, or Z" });
+    if (!["L", "H", "Z"].includes(result)) return res.status(400).json({ message: "Invalid result. Use L, H, or Z" });
     const query = sessionId ? { _id: sessionId, userId: req.user.id, isActive: true } : { userId: req.user.id, isActive: true };
     const session = await RouletteSession.findOne(query).sort({ updatedAt: -1 });
     if (!session) return res.status(404).json({ message: "No active roulette session" });
     const state = rouletteProcessResult(result, session);
-    session.markModified("fullHistory"); session.markModified("lhHistory");
-    session.markModified("rbHistory"); session.markModified("handLog");
+    session.markModified("fullHistory"); session.markModified("handLog");
     session.isActive = state.gameOver ? false : true;
     await session.save();
     return res.json({ ...state, sessionId: String(session._id) });
@@ -481,7 +426,7 @@ app.post("/roulette/reset", authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.005);
     await RouletteSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await RouletteSession.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll });
-    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, R: 0, B: 0, Z: 0 }, phase: "waiting", history: [], lhSuggestion: null, rbSuggestion: null, lhUnit: 1, rbUnit: 1, primaryTrack: "LH", message: "Enter 3 results to start" });
+    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter 3 results to start" });
   } catch (err) { return res.status(500).json({ message: "Reset failed", error: err.message }); }
 });
 

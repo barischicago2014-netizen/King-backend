@@ -11,7 +11,17 @@
       "Bash(curl -s https://king-backend.vercel.app/)",
       "Bash(curl -s -X POST https://king-backend.vercel.app/admin/set-plan -H 'x-admin-secret: baccarat_admin_2024' -H 'Content-Type: application/json' -d '{\"username\": \"baccarat queen\", \"exempt\": true}')",
       "Bash(curl -s -X POST https://king-backend.vercel.app/admin/set-plan -H 'x-admin-secret: baccarat_admin_2024' -H 'Content-Type: application/json' -d '{\"username\": \"ali\", \"exempt\": true}')",
-      "Bash(curl -s -X POST https://king-backend.vercel.app/admin/set-plan -H 'x-admin-secret: baccarat_admin_2024' -H 'Content-Type: application/json' -d '{\"username\": \"savas\", \"exempt\": true}')"
+      "Bash(curl -s -X POST https://king-backend.vercel.app/admin/set-plan -H 'x-admin-secret: baccarat_admin_2024' -H 'Content-Type: application/json' -d '{\"username\": \"savas\", \"exempt\": true}')",
+      "Bash(curl -s -X POST https://king-backend.vercel.app/login -H 'Content-Type: application/json' -d '{\"username\":\"baccarat queen\",\"password\":\"123456\",\"termsAccepted\":true}')",
+      "Bash(curl -s -X POST https://king-backend.vercel.app/login -H 'Content-Type: application/json' -d '{\"username\":\"ali\",\"password\":\"1111111\",\"termsAccepted\":true}')",
+      "Bash(curl -s -X POST https://king-backend.vercel.app/login -H 'Content-Type: application/json' -d '{\"username\":\"savas\",\"password\":\"7777777\",\"termsAccepted\":true}')",
+      "Bash(/opt/homebrew/bin/git -v)",
+      "Bash(/opt/homebrew/bin/git -C \"/Users/barisarmagan/Desktop/King backend\" add server.js)",
+      "Bash(/opt/homebrew/bin/git -C '/Users/barisarmagan/Desktop/King backend' commit -m ':*)",
+      "Bash(/opt/homebrew/bin/git -C \"/Users/barisarmagan/Desktop/King backend\" push origin main)",
+      "Bash(export PATH=\"/Users/barisarmagan/.nvm/versions/node/v24.14.1/bin:$PATH\")",
+      "Bash(/Users/barisarmagan/.nvm/versions/node/v24.14.1/bin/node -e \"\")",
+      "Bash(python3 /tmp/test_baccarat.py)"
     ]
   }
 }

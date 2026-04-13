@@ -241,12 +241,8 @@ export default function App() {
       setRLastResult(result);
       if (res.data.sessionId) setRSessionId(res.data.sessionId);
       setRgs((prev) => ({ ...prev, ...res.data }));
-      const net = (res.data.lhWin ? 1 : -1) * (res.data.lhUnit || 1) * (res.data.baseUnit || 5)
-                + (res.data.rbWin ? 1 : -1) * (res.data.rbUnit || 1) * (res.data.baseUnit || 5);
-      if (result === "Z") showFlash("ZERO", C.gray);
-      else if (res.data.lhWin && res.data.rbWin) showFlash("+" + res.data.baseUnit * 2, C.green);
-      else if (!res.data.lhWin && !res.data.rbWin) showFlash("-" + res.data.baseUnit * 2, C.red);
-      else showFlash("±" + res.data.baseUnit, "#ffaa44");
+      if (res.data.phase === "active" && res.data.win === true) showFlash("+$" + res.data.baseUnit, C.green);
+      else if (res.data.phase === "active" && res.data.win === false) showFlash("-$" + res.data.baseUnit, C.red);
     } catch (err) {
       rResultInFlight.current = false;
       setLoading(false);
@@ -597,18 +593,15 @@ export default function App() {
 
   // ═══ ROULETTE GAME ══════════════════════════════════════════════════════════
   if (screen === "roulette-game") {
-    const rsc = rgs?.scoreboard || { L: 0, H: 0, R: 0, B: 0, Z: 0 };
+    const rsc = rgs?.scoreboard || { L: 0, H: 0, Z: 0 };
     const rphase = rgs?.phase;
-    const rTarget = (rgs?.targetMax ?? rgs?.bankroll) != null ? fmt2((rgs?.targetMax ?? rgs?.bankroll) + 2 * (rgs?.baseUnit ?? 0)) : null;
-
-    function fmt2(n) { return n != null ? parseFloat(n.toFixed(2)) : null; }
+    const rTarget = (rgs?.targetMax ?? rgs?.bankroll) != null ? parseFloat(((rgs?.targetMax ?? rgs?.bankroll) + 2 * (rgs?.baseUnit ?? 0)).toFixed(2)) : null;
 
     const rBtnStyle = (bg, isLast) => ({
-      flex: 1, maxWidth: 150, height: 90, fontSize: 20, fontWeight: "bold",
+      flex: 1, maxWidth: 160, height: 90, fontSize: 22, fontWeight: "bold",
       backgroundColor: bg, color: C.white,
       border: isLast ? `3px solid ${C.gold}` : "3px solid transparent",
-      borderRadius: 14, cursor: "pointer", display: "flex", flexDirection: "column",
-      alignItems: "center", justifyContent: "center", gap: 3,
+      borderRadius: 14, cursor: "pointer",
       WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
     });
 
@@ -627,23 +620,14 @@ export default function App() {
         </div>
 
         <div style={S.content}>
-          {/* Scoreboards */}
-          <div style={{ ...S.scoreboard, flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
-              {[{ l: "LOW", k: "L", c: C.blue }, { l: "HIGH", k: "H", c: C.red }].map(({ l, k, c }) => (
-                <div key={k} style={{ textAlign: "center" }}>
-                  <div style={{ color: c, fontSize: 13, fontWeight: "bold" }}>{l}</div>
-                  <div style={{ fontSize: 22, fontWeight: "bold" }}>{rsc[k]}</div>
-                </div>
-              ))}
-              <div style={{ width: 1, backgroundColor: C.border }} />
-              {[{ l: "RED", k: "R", c: "#cc2233" }, { l: "BLK", k: "B", c: C.gray }, { l: "ZERO", k: "Z", c: "#1a6633" }].map(({ l, k, c }) => (
-                <div key={k} style={{ textAlign: "center" }}>
-                  <div style={{ color: c, fontSize: 13, fontWeight: "bold" }}>{l}</div>
-                  <div style={{ fontSize: 22, fontWeight: "bold" }}>{rsc[k]}</div>
-                </div>
-              ))}
-            </div>
+          {/* Scoreboard */}
+          <div style={S.scoreboard}>
+            {[{ l: "LOW", k: "L", c: C.blue }, { l: "HIGH", k: "H", c: C.red }, { l: "ZERO", k: "Z", c: "#1a6633" }].map(({ l, k, c }) => (
+              <div key={k} style={{ textAlign: "center" }}>
+                <div style={{ color: c, fontSize: 13, fontWeight: "bold" }}>{l}</div>
+                <div style={{ fontSize: 22, fontWeight: "bold" }}>{rsc[k]}</div>
+              </div>
+            ))}
           </div>
 
           {/* Recommendation box */}
@@ -655,21 +639,13 @@ export default function App() {
               ) : rphase === "observation" ? (
                 <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>OBSERVATION</div>
                 <div style={{ color: "#ffaa44", fontSize: 16 }}>{rgs.message}</div></>
-              ) : rgs.lhSuggestion ? (
+              ) : rgs.suggestion ? (
                 <>
                   <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SYSTEM RECOMMENDATION</div>
-                  <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
-                    <div style={{ textAlign: "center", border: rgs.primaryTrack === "LH" ? `2px solid ${C.gold}` : "1px solid #333", borderRadius: 8, padding: "8px 16px" }}>
-                      <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>LOW / HIGH</div>
-                      <div style={{ fontSize: 24, fontWeight: "bold", color: rgs.lhSuggestion === "L" ? C.blue : C.red }}>{rgs.lhSuggestion === "L" ? "LOW" : "HIGH"}</div>
-                      <div style={{ color: C.gold, fontSize: 14 }}>{rgs.lhUnit} unit{rgs.lhUnit > 1 ? "s" : ""}</div>
-                    </div>
-                    <div style={{ textAlign: "center", border: rgs.primaryTrack === "RB" ? `2px solid ${C.gold}` : "1px solid #333", borderRadius: 8, padding: "8px 16px" }}>
-                      <div style={{ color: C.gray, fontSize: 10, marginBottom: 4 }}>RED / BLACK</div>
-                      <div style={{ fontSize: 24, fontWeight: "bold", color: rgs.rbSuggestion === "R" ? "#cc2233" : C.gray }}>{rgs.rbSuggestion === "R" ? "RED" : "BLACK"}</div>
-                      <div style={{ color: C.gold, fontSize: 14 }}>{rgs.rbUnit} unit{rgs.rbUnit > 1 ? "s" : ""}</div>
-                    </div>
+                  <div style={{ fontSize: 32, fontWeight: "bold", color: rgs.suggestion === "L" ? C.blue : C.red }}>
+                    {rgs.suggestion === "L" ? "LOW" : "HIGH"}
                   </div>
+                  <div style={{ color: C.gold, fontSize: 16, marginTop: 4 }}>{rgs.unit} unit{rgs.unit > 1 ? "s" : ""} — ${((rgs.unit || 1) * (rgs.baseUnit || 0)).toFixed(2)}</div>
                 </>
               ) : null}
             </div>
@@ -691,30 +667,18 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* 2x2 grid + ZERO */}
+              {/* 3 buttons: LOW | HIGH | ZERO */}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", alignItems: "center" }}>
                 <div style={{ display: "flex", gap: 10, width: "100%", justifyContent: "center" }}>
-                  <button onClick={() => addRouletteResult("LR")} style={rBtnStyle("#8B0000", rLastResult === "LR")}>
-                    LOW<span style={{ fontSize: 11, opacity: 0.85 }}>● RED</span>
-                  </button>
-                  <button onClick={() => addRouletteResult("HR")} style={rBtnStyle("#cc2233", rLastResult === "HR")}>
-                    HIGH<span style={{ fontSize: 11, opacity: 0.85 }}>● RED</span>
-                  </button>
-                </div>
-                <div style={{ display: "flex", gap: 10, width: "100%", justifyContent: "center" }}>
-                  <button onClick={() => addRouletteResult("LB")} style={rBtnStyle("#333", rLastResult === "LB")}>
-                    LOW<span style={{ fontSize: 11, opacity: 0.85 }}>● BLACK</span>
-                  </button>
-                  <button onClick={() => addRouletteResult("HB")} style={rBtnStyle("#555", rLastResult === "HB")}>
-                    HIGH<span style={{ fontSize: 11, opacity: 0.85 }}>● BLACK</span>
-                  </button>
+                  <button onClick={() => addRouletteResult("L")} style={rBtnStyle(C.blue, rLastResult === "L")}>LOW</button>
+                  <button onClick={() => addRouletteResult("H")} style={rBtnStyle(C.red, rLastResult === "H")}>HIGH</button>
                 </div>
                 <button onClick={() => addRouletteResult("Z")} style={{ width: "60%", maxWidth: 200, height: 56, fontSize: 16, fontWeight: "bold", backgroundColor: "#1a6633", color: C.white, border: rLastResult === "Z" ? `3px solid ${C.gold}` : "3px solid transparent", borderRadius: 14, cursor: "pointer", WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
                   ZERO (0 / 00)
                 </button>
               </div>
               {rLastResult && (
-                <div style={{ color: C.gray, fontSize: 13 }}>Last entered: <span style={{ fontWeight: "bold", color: rLastResult === "Z" ? "#1a6633" : rLastResult.includes("R") ? "#cc2233" : C.gray }}>{rLastResult === "LR" ? "LOW-RED" : rLastResult === "LB" ? "LOW-BLACK" : rLastResult === "HR" ? "HIGH-RED" : rLastResult === "HB" ? "HIGH-BLACK" : "ZERO"}</span></div>
+                <div style={{ color: C.gray, fontSize: 13 }}>Last: <span style={{ fontWeight: "bold", color: rLastResult === "Z" ? "#44cc77" : rLastResult === "L" ? C.blue : C.red }}>{rLastResult === "L" ? "LOW" : rLastResult === "H" ? "HIGH" : "ZERO"}</span></div>
               )}
               <button onClick={finishRouletteGame} disabled={loading} style={{ marginTop: 8, padding: "10px 28px", fontSize: 13, backgroundColor: "transparent", color: "#ff8844", border: "1px solid #ff8844", borderRadius: 8, cursor: "pointer" }}>End Game</button>
             </>
@@ -725,10 +689,10 @@ export default function App() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center", maxWidth: 380 }}>
               {[...rgs.history].reverse().map((r, i) => (
                 <span key={i} style={{ width: 36, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, fontWeight: "bold", fontSize: 11,
-                  backgroundColor: r === "Z" ? "#1a4a2a" : r === "LR" ? "#5a0000" : r === "HR" ? "#8B0000" : r === "LB" ? "#1a1a1a" : "#2a2a2a",
-                  color: r === "Z" ? "#44cc77" : r.includes("R") ? "#ff6666" : C.gray,
+                  backgroundColor: r === "Z" ? "#1a4a2a" : r === "L" ? "#1a2a4a" : "#4a1a1a",
+                  color: r === "Z" ? "#44cc77" : r === "L" ? "#6699ff" : "#ff6666",
                   border: `1px solid ${C.border}` }}>
-                  {r === "Z" ? "0" : r === "LR" ? "L🔴" : r === "HR" ? "H🔴" : r === "LB" ? "L⚫" : "H⚫"}
+                  {r === "Z" ? "0" : r}
                 </span>
               ))}
             </div>
