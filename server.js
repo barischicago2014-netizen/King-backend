@@ -211,8 +211,10 @@ function processResult(result, s) {
     const maxAffordable = Math.floor(s.balance / fmt(s.baseUnit));
     if (nextUnit > maxAffordable && maxAffordable > 0) nextUnit = maxAffordable;
     s.currentUnit = nextUnit;
-    // +2 birim kâr: barajda → targetMax+2, normalde → bankroll+2
-    const gameOverTarget = s.targetMax !== null ? s.targetMax + 2 * s.baseUnit : s.bankroll + 2 * s.baseUnit;
+    // +2 net unit profit: commission-adjusted for Banker bets
+    const netUnit = s.currentSuggestion === "B" ? fmt(s.baseUnit * 0.95) : s.baseUnit;
+    const baseRef = s.targetMax !== null ? s.targetMax : s.bankroll;
+    const gameOverTarget = fmt(baseRef + 2 * netUnit);
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Target reached! (Target: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
