@@ -222,7 +222,7 @@ export default function App() {
   function ScoreboardBlock({ sc }) {
     return (
       <div style={S.scoreboard}>
-        {[{ l: "B", c: C.blue }, { l: "P", c: C.red }, { l: "T", c: C.gray }].map(({ l, c }, i) => (
+        {[{ l: "P", c: C.blue }, { l: "T", c: C.gray }, { l: "B", c: C.red }].map(({ l, c }, i) => (
           <React.Fragment key={l}>
             {i > 0 && <div style={{ width: 1, backgroundColor: C.border }} />}
             <div style={{ textAlign: "center" }}>
@@ -240,7 +240,7 @@ export default function App() {
     return (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center", maxWidth: 380 }}>
         {[...history].reverse().map((r, i) => (
-          <span key={i} style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, fontWeight: "bold", fontSize: 13, backgroundColor: i === 0 ? (r === "B" ? "#1a3a6a" : r === "P" ? "#5a1a1a" : "#333") : C.card, color: r === "B" ? C.blue : r === "P" ? C.red : C.gray, border: `1px solid ${C.border}` }}>{r}</span>
+          <span key={i} style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, fontWeight: "bold", fontSize: 13, backgroundColor: i === 0 ? (r === "B" ? "#5a1a1a" : r === "P" ? "#1a3a6a" : "#333") : C.card, color: r === "B" ? C.red : r === "P" ? C.blue : C.gray, border: `1px solid ${C.border}` }}>{r}</span>
         ))}
       </div>
     );
@@ -433,7 +433,7 @@ export default function App() {
               ) : gs.recommendation ? (
                 <>
                   <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>SYSTEM RECOMMENDATION</div>
-                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 4, color: gs.recommendation === "B" ? C.blue : C.red }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
+                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 4, color: gs.recommendation === "B" ? C.red : C.blue }}>{gs.recommendation === "B" ? "BANKER" : "PLAYER"}</div>
                   <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>{gs.unit} units</div>
                   {gs.actualBet && <div style={{ color: C.white, fontSize: 16, marginTop: 4, opacity: 0.8 }}>({gs.actualBet})</div>}
                 </>
@@ -453,7 +453,7 @@ export default function App() {
               ) : aiData ? (
                 <span style={{ fontSize: 13 }}>
                   <span style={{ color: "#aaaadd" }}>AI: </span>
-                  <span style={{ color: aiData.side === "B" ? C.blue : aiData.side === "P" ? C.red : C.gray, fontWeight: "bold" }}>
+                  <span style={{ color: aiData.side === "B" ? C.red : aiData.side === "P" ? C.blue : C.gray, fontWeight: "bold" }}>
                     {aiData.side === "B" ? "BANKER" : aiData.side === "P" ? "PLAYER" : "NEUTRAL"}
                   </span>
                   {aiData.confidence && (
@@ -479,13 +479,13 @@ export default function App() {
           ) : (
             <>
               <div style={{ display: "flex", gap: 14, width: "100%", justifyContent: "center" }}>
-                {[{ l: "B", sub: "BANKER", color: C.blue }, { l: "P", sub: "PLAYER", color: C.red }, { l: "T", sub: "TIE", color: C.dark }].map(({ l, sub, color }) => (
+                {[{ l: "P", sub: "PLAYER", color: C.blue }, { l: "T", sub: "TIE", color: C.dark }, { l: "B", sub: "BANKER", color: C.red }].map(({ l, sub, color }) => (
                   <button key={l} onClick={() => addResult(l)} style={{ flex: 1, maxWidth: 120, height: 100, fontSize: 32, fontWeight: "bold", backgroundColor: color, color: C.white, border: lastResult === l ? `3px solid ${C.gold}` : "3px solid transparent", borderRadius: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
                     {l}<span style={{ fontSize: 11, fontWeight: "normal", opacity: 0.8 }}>{sub}</span>
                   </button>
                 ))}
               </div>
-              {lastResult && <div style={{ color: C.gray, fontSize: 13 }}>Last entered: <span style={{ color: lastResult === "B" ? C.blue : lastResult === "P" ? C.red : C.gray, fontWeight: "bold" }}>{lastResult}</span></div>}
+              {lastResult && <div style={{ color: C.gray, fontSize: 13 }}>Last entered: <span style={{ color: lastResult === "B" ? C.red : lastResult === "P" ? C.blue : C.gray, fontWeight: "bold" }}>{lastResult}</span></div>}
               <button onClick={finishGame} disabled={loading} style={{ marginTop: 8, padding: "10px 28px", fontSize: 13, backgroundColor: "transparent", color: "#ff8844", border: "1px solid #ff8844", borderRadius: 8, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
                 End Game
               </button>
