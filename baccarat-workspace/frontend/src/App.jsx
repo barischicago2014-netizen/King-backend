@@ -257,7 +257,7 @@ export default function App() {
       const res = await api.post("/roulette/finish");
       const newBankroll = res.data.balance;
       const startRes = await api.post("/roulette/reset", { bankroll: newBankroll });
-      setRgs({ ...startRes.data, scoreboard: { L: 0, H: 0, R: 0, B: 0, Z: 0 }, history: [] });
+      setRgs(startRes.data);
       setRSessionId(startRes.data.sessionId || null);
       setRLastResult(null);
     } finally { setLoading(false); }
@@ -268,7 +268,7 @@ export default function App() {
     setLoading(true);
     try {
       const res = await api.post("/roulette/reset", { bankroll: newBankroll });
-      setRgs({ ...res.data, scoreboard: { L: 0, H: 0, R: 0, B: 0, Z: 0 }, history: [] });
+      setRgs(res.data);
       setRSessionId(res.data.sessionId || null);
       setRLastResult(null);
     } finally { setLoading(false); }
