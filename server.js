@@ -71,6 +71,8 @@ const SessionSchema = new mongoose.Schema({
   targetMax: { type: Number, default: null },
   phase: { type: String, default: "waiting" },
   observationCount: { type: Number, default: 0 },
+  observationLevel: { type: Number, default: 0 },
+  observationTarget: { type: Number, default: 1 },
   currentSuggestion: { type: String, default: null },
   currentUnit: { type: Number, default: 1 },
   isActive: { type: Boolean, default: true },
@@ -106,6 +108,8 @@ const RouletteSessionSchema = new mongoose.Schema({
   consecutiveLosses: { type: Number, default: 0 },
   phase: { type: String, default: "waiting" },
   observationCount: { type: Number, default: 0 },
+  observationLevel: { type: Number, default: 0 },
+  observationTarget: { type: Number, default: 1 },
   lossLevel: { type: Number, default: 0 },
   lossStep: { type: Number, default: 0 },
   targetMax: { type: Number, default: null },
@@ -193,14 +197,16 @@ function processResult(result, s) {
   s.updatedAt = new Date();
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
-  // Gözlem modu: 3 üst üste kayıptan sonra 3 el bekle
+  // Gözlem modu: 3 üst üste kayıptan sonra progressive gözlem (1→2→3 el)
   if (s.phase === "observation") {
     s.observationCount = (s.observationCount || 0) + 1;
-    if (s.observationCount >= 3) {
+    const target = s.observationTarget || 1;
+    if (s.observationCount >= target) {
       s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
       s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
     }
-    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Observation: ${3 - s.observationCount} hands remaining` : "Observation done — betting resumes", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    const remaining = target - s.observationCount;
+    return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Observation: ${remaining} hand${remaining !== 1 ? "s" : ""} remaining` : "Observation done — betting resumes", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " more results needed", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   // leader: 3 setup eli dahil tam geçmişe bakarak hesapla
@@ -257,8 +263,10 @@ function processResult(result, s) {
     s.consecutiveLosses++;
     // 3 üst üste kayıp → 3 el gözlem moduna gir
     if (s.consecutiveLosses >= 3) {
+      s.observationLevel = Math.min((s.observationLevel || 0) + 1, 3);
+      s.observationTarget = s.observationLevel;
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "3 losses — entering 3-hand observation", phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `3 losses — entering ${s.observationTarget}-hand observation`, phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
     }
     // Her kayıpta seçenek flip: B→P→B; 1. kayıpta birim 2, 2. kayıpta birim 1
     s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
@@ -318,14 +326,16 @@ function rouletteProcessResult(result, s) {
   // ── OBSERVATION phase ──────────────────────────────────────────────────────
   if (s.phase === "observation") {
     s.observationCount++;
-    if (s.observationCount >= 3) {
+    const target = s.observationTarget || 1;
+    if (s.observationCount >= target) {
       s.phase = "active"; s.observationCount = 0; s.consecutiveLosses = 0;
       const last5 = s.fullHistory.filter(x => x !== "Z").slice(-5);
       s.suggestion = getLeaderLH(last5.length ? last5 : s.fullHistory.filter(x => x !== "Z"));
       s.currentUnit = 1;
       return buildResponse({ message: "Observation done — betting resumes" });
     }
-    return buildResponse({ message: "Observation: " + (3 - s.observationCount) + " hands remaining" });
+    const remaining = target - s.observationCount;
+    return buildResponse({ message: "Observation: " + remaining + " hand" + (remaining !== 1 ? "s" : "") + " remaining" });
   }
 
   // ── ACTIVE phase ───────────────────────────────────────────────────────────
@@ -339,8 +349,10 @@ function rouletteProcessResult(result, s) {
     const handEntry = { handNo: (s.handLog ? s.handLog.length + 1 : 1), suggestion: s.suggestion, unit: s.currentUnit, betAmount, result: "Z", win: false, balanceAfter: s.balance, phase: s.phase, timestamp: new Date() };
     if (s.handLog) s.handLog.push(handEntry);
     if (s.consecutiveLosses >= 3) {
+      s.observationLevel = Math.min((s.observationLevel || 0) + 1, 3);
+      s.observationTarget = s.observationLevel;
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return buildResponse({ win: false, message: "3 losses — entering 3-hand observation" });
+      return buildResponse({ win: false, message: `3 losses — entering ${s.observationTarget}-hand observation` });
     }
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     return buildResponse({ win: false, message: "ZERO — LOSS -$" + betAmount });
@@ -369,8 +381,10 @@ function rouletteProcessResult(result, s) {
   } else {
     s.consecutiveLosses++;
     if (s.consecutiveLosses >= 3) {
+      s.observationLevel = Math.min((s.observationLevel || 0) + 1, 3);
+      s.observationTarget = s.observationLevel;
       s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return buildResponse({ win: false, message: "3 losses — entering 3-hand observation" });
+      return buildResponse({ win: false, message: `3 losses — entering ${s.observationTarget}-hand observation` });
     }
     s.suggestion = s.suggestion === "L" ? "H" : "L";
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
