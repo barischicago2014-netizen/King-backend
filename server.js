@@ -229,8 +229,9 @@ function processResult(result, s) {
     const commMsg = commission > 0 ? ` (commission -${commission})` : "";
     const msg = `WIN +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    // Baraj aktifse targetMax'ı hedef al, yoksa maxWin — tek elde maxWin+1 birime ulaş
-    const baseTarget = s.targetMax !== null ? s.targetMax : s.maxWin;
+    // Baraj aktifse targetMax'ı hedef al, yoksa maxWin — maxWin asla bankroll'dan küçük olamaz
+    const peakRef = Math.max(s.maxWin, s.bankroll);
+    const baseTarget = s.targetMax !== null ? s.targetMax : peakRef;
     const gap = baseTarget + s.baseUnit - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
