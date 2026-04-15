@@ -160,6 +160,15 @@ async function authWithPlan(req, res, next) {
   } catch { return res.status(401).json({ message: "Gecersiz token" }); }
 }
 
+function isChop(arr) {
+  if (arr.length < 5) return false;
+  const last5 = arr.slice(-5);
+  for (let i = 1; i < 5; i++) {
+    if (last5[i] === last5[i - 1]) return false;
+  }
+  return true;
+}
+
 function getLeader(bpHistory) {
   const b = bpHistory.filter((r) => r === "B").length;
   const p = bpHistory.filter((r) => r === "P").length;
@@ -241,6 +250,7 @@ function processResult(result, s) {
     const gap = baseTarget + s.baseUnit - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
+    if (nextUnit > 5) nextUnit = 5;
     // Bahis mevcut bakiyeyi geçemez
     const maxAffordable = Math.floor(s.balance / fmt(s.baseUnit));
     if (nextUnit > maxAffordable && maxAffordable > 0) nextUnit = maxAffordable;
@@ -261,22 +271,30 @@ function processResult(result, s) {
     const lostUnit = s.currentUnit;
     applyLossLevel(s);
     s.consecutiveLosses++;
-    // 3 üst üste kayıp → 3 el gözlem moduna gir
     if (s.consecutiveLosses >= 3) {
-      s.observationLevel = Math.min((s.observationLevel || 0) + 1, 3);
-      s.observationTarget = s.observationLevel;
-      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return { win: false, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `3 losses — entering ${s.observationTarget}-hand observation`, phase: "observation", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+      // 3 üst üste kayıp → gözlem yok, flip + sıfırla
+      s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
+      s.currentUnit = 2; s.consecutiveLosses = 0;
+    } else {
+      // Her kayıpta seçenek flip: 1. kayıpta birim 2, 2. kayıpta birim 1
+      s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
+      s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     }
-    // Her kayıpta seçenek flip: B→P→B; 1. kayıpta birim 2, 2. kayıpta birim 1
-    s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
-    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "LOSS -" + lostUnit + " units", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
 
 
 // ═══ ROULETTE HELPERS ════════════════════════════════════════════════════════
+
+function isChopLH(arr) {
+  if (arr.length < 5) return false;
+  const last5 = arr.slice(-5);
+  for (let i = 1; i < 5; i++) {
+    if (last5[i] === last5[i - 1]) return false;
+  }
+  return true;
+}
 
 function getLeaderLH(arr) {
   const l = arr.filter(x => x === "L").length;
@@ -349,12 +367,11 @@ function rouletteProcessResult(result, s) {
     const handEntry = { handNo: (s.handLog ? s.handLog.length + 1 : 1), suggestion: s.suggestion, unit: s.currentUnit, betAmount, result: "Z", win: false, balanceAfter: s.balance, phase: s.phase, timestamp: new Date() };
     if (s.handLog) s.handLog.push(handEntry);
     if (s.consecutiveLosses >= 3) {
-      s.observationLevel = Math.min((s.observationLevel || 0) + 1, 3);
-      s.observationTarget = s.observationLevel;
-      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return buildResponse({ win: false, message: `3 losses — entering ${s.observationTarget}-hand observation` });
+      s.suggestion = s.suggestion === "L" ? "H" : "L";
+      s.currentUnit = 2; s.consecutiveLosses = 0;
+    } else {
+      s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     }
-    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     return buildResponse({ win: false, message: "ZERO — LOSS -$" + betAmount });
   }
 
@@ -375,19 +392,20 @@ function rouletteProcessResult(result, s) {
     // Gap-closing unit
     const baseRef = s.targetMax !== null ? s.targetMax : s.maxWin;
     const gap = baseRef + s.baseUnit - s.balance;
-    const nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
+    let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
+    if (nextUnit > 5) nextUnit = 5;
     const maxAffordable = Math.floor(s.balance / s.baseUnit);
     s.currentUnit = Math.max(1, Math.min(nextUnit, maxAffordable > 0 ? maxAffordable : nextUnit));
   } else {
     s.consecutiveLosses++;
     if (s.consecutiveLosses >= 3) {
-      s.observationLevel = Math.min((s.observationLevel || 0) + 1, 3);
-      s.observationTarget = s.observationLevel;
-      s.phase = "observation"; s.observationCount = 0; s.consecutiveLosses = 0;
-      return buildResponse({ win: false, message: `3 losses — entering ${s.observationTarget}-hand observation` });
+      // 3 üst üste kayıp → gözlem yok, flip + sıfırla
+      s.suggestion = s.suggestion === "L" ? "H" : "L";
+      s.currentUnit = 2; s.consecutiveLosses = 0;
+    } else {
+      s.suggestion = s.suggestion === "L" ? "H" : "L";
+      s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     }
-    s.suggestion = s.suggestion === "L" ? "H" : "L";
-    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
   }
 
   // Game over check
