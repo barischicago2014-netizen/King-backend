@@ -247,7 +247,7 @@ function processResult(result, s) {
     // +2 net unit game over target
     const netUnit = s.currentSuggestion === "B" ? fmt(s.baseUnit * 0.95) : s.baseUnit;
     const baseRef = s.targetMax !== null ? s.targetMax : s.bankroll;
-    const gameOverTarget = fmt(baseRef + 2 * netUnit);
+    const gameOverTarget = fmt(baseRef + 1 * netUnit);
     // Gap-closing: aim exactly at game over target
     const gap = gameOverTarget - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
@@ -389,7 +389,7 @@ function rouletteProcessResult(result, s) {
     s.suggestion = getLeaderLH(s.fullHistory.filter(x => x !== "Z"));
     // Gap-closing unit
     const goRef = s.targetMax !== null ? s.targetMax : s.bankroll;
-    const goTarget = fmt(goRef + 2 * s.baseUnit);
+    const goTarget = fmt(goRef + 1 * s.baseUnit);
     const gap = goTarget - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit > 5) nextUnit = 5;
@@ -408,7 +408,7 @@ function rouletteProcessResult(result, s) {
   }
 
   // Game over check
-  const gameOverTarget = fmt((s.targetMax !== null ? s.targetMax : s.bankroll) + 2 * s.baseUnit);
+  const gameOverTarget = fmt((s.targetMax !== null ? s.targetMax : s.bankroll) + 1 * s.baseUnit);
   if (s.balance >= gameOverTarget) {
     s.phase = "gameover";
     return buildResponse({ gameOver: true, win: true, message: "GAME OVER! Target reached! (Target: $" + gameOverTarget + ")" });
