@@ -54,7 +54,8 @@ export default function App() {
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
     const username = localStorage.getItem("bac_user");
-    if (token && username) setUser({ token, username });
+    const role = localStorage.getItem("bac_role") || "user";
+    if (token && username) setUser({ token, username, role });
   }, []);
 
   function showFlash(text, color) {
@@ -71,7 +72,8 @@ export default function App() {
       const res = await api.post("/login", { ...form, termsAccepted });
       localStorage.setItem("bac_token", res.data.token);
       localStorage.setItem("bac_user", res.data.username);
-      setUser({ token: res.data.token, username: res.data.username });
+      localStorage.setItem("bac_role", res.data.role || "user");
+      setUser({ token: res.data.token, username: res.data.username, role: res.data.role || "user" });
       setForm({ username: "", password: "" });
       setScreen(selectedGame === "roulette" ? "roulette-bankroll" : "bankroll");
     } catch (err) {
@@ -328,7 +330,10 @@ export default function App() {
           <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strategy System</p>
           <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("baccarat"); setScreen("login"); }}>Sign In — Baccarat</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#cc2233", border: "2px solid #cc2233", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("roulette"); setScreen("login"); }}>Sign In — Roulette</button>
-          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer" }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
+          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
+          {user?.role === "admin" && (
+            <button style={{ padding: "9px 0", width: "100%", maxWidth: 300, fontSize: 13, backgroundColor: "transparent", color: "#888", border: "1px solid #333", borderRadius: 6, cursor: "pointer" }} onClick={() => setScreen("admin")}>Admin Panel</button>
+          )}
         </div>
       </div>
     );
@@ -441,7 +446,7 @@ export default function App() {
   // ═══ BANKROLL ═══════════════════════════════════════
   if (screen === "bankroll") {
     const preview = parseFloat(bankrollInput);
-    const unitPreview = preview > 0 ? (preview * 0.005).toFixed(2) : null;
+    const unitPreview = preview > 0 ? (preview * 0.01).toFixed(2) : null;
     return (
       <div style={S.page}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -461,7 +466,7 @@ export default function App() {
             />
             {unitPreview && (
               <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>
-                Unit value: <span style={{ color: C.gold }}>{unitPreview}</span> (bankroll × 0.5%)
+                Unit value: <span style={{ color: C.gold }}>{unitPreview}</span> (bankroll × 1%)
               </p>
             )}
             {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
@@ -539,7 +544,7 @@ export default function App() {
             <div style={{ textAlign: "center", padding: 24, width: "100%" }}>
               <div style={{ fontSize: 48, fontWeight: "bold", color: C.gold, marginBottom: 8 }}>GAME OVER</div>
               <div style={{ color: C.green, fontSize: 20, marginBottom: 8 }}>Balance: {gs.balance?.toFixed(2)}</div>
-              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>New unit: {gs.balance ? (gs.balance * 0.005).toFixed(2) : "—"}</div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>New unit: {gs.balance ? (gs.balance * 0.01).toFixed(2) : "—"}</div>
               <button style={{ ...S.btnGold, marginBottom: 12 }} onClick={resetGame} disabled={loading}>{loading ? "..." : "Play Again"}</button>
               <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300, marginBottom: 10 }} onClick={() => { const a = document.createElement("a"); a.href = `${api.defaults.baseURL}/game/export`; a.setAttribute("download", ""); const token = localStorage.getItem("bac_token"); fetch(a.href, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.blob()).then(b => { a.href = URL.createObjectURL(b); a.click(); }); }}>Download Report (CSV)</button>
               <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Sign Out</button>
@@ -570,7 +575,7 @@ export default function App() {
   // ═══ ROULETTE BANKROLL ══════════════════════════════════════════════════════
   if (screen === "roulette-bankroll") {
     const preview = parseFloat(bankrollInput);
-    const unitPreview = preview > 0 ? (preview * 0.005).toFixed(2) : null;
+    const unitPreview = preview > 0 ? (preview * 0.01).toFixed(2) : null;
     return (
       <div style={S.page}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -581,7 +586,7 @@ export default function App() {
               <h2 style={{ color: "#cc2233", fontSize: 22, margin: 0 }}>Roulette — Enter Bankroll</h2>
             </div>
             <input style={{ ...S.input, marginBottom: 8, fontSize: 22, textAlign: "center" }} type="number" placeholder="0" value={bankrollInput} onChange={(e) => setBankrollInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRouletteBankrollStart()} autoFocus />
-            {unitPreview && <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>Unit value: <span style={{ color: "#cc2233" }}>{unitPreview}</span> (bankroll × 0.5%)</p>}
+            {unitPreview && <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>Unit value: <span style={{ color: "#cc2233" }}>{unitPreview}</span> (bankroll × 1%)</p>}
             {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
             <button style={{ ...S.btnGold, backgroundColor: "#cc2233", color: C.white, marginBottom: 10 }} onClick={handleRouletteBankrollStart} disabled={loading}>{loading ? "..." : "Start Roulette"}</button>
             <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Sign Out</button>
@@ -661,7 +666,7 @@ export default function App() {
             <div style={{ textAlign: "center", padding: 24, width: "100%" }}>
               <div style={{ fontSize: 48, fontWeight: "bold", color: "#cc2233", marginBottom: 8 }}>GAME OVER</div>
               <div style={{ color: C.green, fontSize: 20, marginBottom: 8 }}>Balance: {rgs.balance?.toFixed(2)}</div>
-              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>New unit: {rgs.balance ? (rgs.balance * 0.005).toFixed(2) : "—"}</div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 24 }}>New unit: {rgs.balance ? (rgs.balance * 0.01).toFixed(2) : "—"}</div>
               <button style={{ ...S.btnGold, backgroundColor: "#cc2233", color: C.white, marginBottom: 12 }} onClick={resetRouletteGame} disabled={loading}>{loading ? "..." : "Play Again"}</button>
               <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Sign Out</button>
             </div>
@@ -703,5 +708,74 @@ export default function App() {
     );
   }
 
+  if (screen === "admin") {
+    return <AdminPanel user={user} onBack={() => setScreen("landing")} />;
+  }
+
   return null;
+}
+
+function AdminPanel({ user, onBack }) {
+  const ADMIN_SECRET = "baccarat_admin_2024";
+  const [players, setPlayers] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    fetch("/admin/players", { headers: { "x-admin-secret": ADMIN_SECRET } })
+      .then(r => r.json()).then(data => { setPlayers(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => { setError("Veri alınamadı"); setLoading(false); });
+  }, []);
+
+  function downloadCsv(username) {
+    fetch(`/admin/export-csv/${encodeURIComponent(username)}`, { headers: { "x-admin-secret": ADMIN_SECRET } })
+      .then(r => r.blob()).then(b => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(b);
+        a.download = `rapor-${username}-${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+      });
+  }
+
+  const C = { bg: "#0a0a0f", card: "#12121a", gold: "#c9a84c", white: "#f0f0f0", gray: "#888", red: "#c0392b", green: "#27ae60" };
+  const S = { btn: { padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 13, backgroundColor: C.gold, color: "#000", fontWeight: "bold" } };
+
+  return (
+    <div style={{ minHeight: "100vh", backgroundColor: C.bg, color: C.white, padding: 24, fontFamily: "monospace" }}>
+      <div style={{ maxWidth: 700, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
+          <button onClick={onBack} style={{ ...S.btn, backgroundColor: "transparent", border: "1px solid #555", color: C.gray }}>← Geri</button>
+          <h2 style={{ margin: 0, color: C.gold }}>Admin — Oyuncu Raporları</h2>
+        </div>
+        {loading && <p style={{ color: C.gray }}>Yükleniyor...</p>}
+        {error && <p style={{ color: C.red }}>{error}</p>}
+        {!loading && !error && (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #333" }}>
+                {["Oyuncu", "Seans", "Son Aktif", "Son Bakiye", "Bankroll", "CSV"].map(h => (
+                  <th key={h} style={{ padding: "8px 10px", textAlign: "left", color: C.gray, fontSize: 12 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {players.map(p => (
+                <tr key={p.username} style={{ borderBottom: "1px solid #1a1a2a" }}>
+                  <td style={{ padding: "10px", fontWeight: "bold" }}>{p.username}</td>
+                  <td style={{ padding: "10px", color: C.gray }}>{p.sessions}</td>
+                  <td style={{ padding: "10px", color: C.gray, fontSize: 12 }}>{p.lastActive ? new Date(p.lastActive).toLocaleString("tr-TR", { timeZone: "America/Chicago" }) : "-"}</td>
+                  <td style={{ padding: "10px", color: p.lastBalance >= p.bankroll ? C.green : C.red }}>${p.lastBalance}</td>
+                  <td style={{ padding: "10px", color: C.gray }}>${p.bankroll}</td>
+                  <td style={{ padding: "10px" }}>
+                    <button onClick={() => downloadCsv(p.username)} style={S.btn}>İndir</button>
+                  </td>
+                </tr>
+              ))}
+              {players.length === 0 && <tr><td colSpan={6} style={{ padding: 20, color: C.gray, textAlign: "center" }}>Kayıt yok</td></tr>}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
 }

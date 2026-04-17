@@ -244,10 +244,12 @@ function processResult(result, s) {
     const commMsg = commission > 0 ? ` (commission -${commission})` : "";
     const msg = `WIN +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    // Baraj aktifse targetMax'ı hedef al, yoksa maxWin — maxWin asla bankroll'dan küçük olamaz
-    const peakRef = Math.max(s.maxWin, s.bankroll);
-    const baseTarget = s.targetMax !== null ? s.targetMax : peakRef;
-    const gap = baseTarget + s.baseUnit - s.balance;
+    // +2 net unit game over target
+    const netUnit = s.currentSuggestion === "B" ? fmt(s.baseUnit * 0.95) : s.baseUnit;
+    const baseRef = s.targetMax !== null ? s.targetMax : s.bankroll;
+    const gameOverTarget = fmt(baseRef + 2 * netUnit);
+    // Gap-closing: aim exactly at game over target
+    const gap = gameOverTarget - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit < 1) nextUnit = 1;
     if (nextUnit > 5) nextUnit = 5;
@@ -255,10 +257,6 @@ function processResult(result, s) {
     const maxAffordable = Math.floor(s.balance / fmt(s.baseUnit));
     if (nextUnit > maxAffordable && maxAffordable > 0) nextUnit = maxAffordable;
     s.currentUnit = nextUnit;
-    // +2 net unit profit: commission-adjusted for Banker bets
-    const netUnit = s.currentSuggestion === "B" ? fmt(s.baseUnit * 0.95) : s.baseUnit;
-    const baseRef = s.targetMax !== null ? s.targetMax : s.bankroll;
-    const gameOverTarget = fmt(baseRef + 2 * netUnit);
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Target reached! (Target: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
@@ -390,8 +388,9 @@ function rouletteProcessResult(result, s) {
     s.consecutiveLosses = 0;
     s.suggestion = getLeaderLH(s.fullHistory.filter(x => x !== "Z"));
     // Gap-closing unit
-    const baseRef = s.targetMax !== null ? s.targetMax : s.maxWin;
-    const gap = baseRef + s.baseUnit - s.balance;
+    const goRef = s.targetMax !== null ? s.targetMax : s.bankroll;
+    const goTarget = fmt(goRef + 2 * s.baseUnit);
+    const gap = goTarget - s.balance;
     let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
     if (nextUnit > 5) nextUnit = 5;
     const maxAffordable = Math.floor(s.balance / s.baseUnit);
@@ -428,7 +427,7 @@ app.post("/roulette/start", authWithPlan, async (req, res) => {
     await connectDB();
     const { bankroll } = req.body;
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Valid bankroll required" });
-    const baseUnit = fmt(bankroll * 0.005);
+    const baseUnit = fmt(bankroll * 0.01);
     await RouletteSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await RouletteSession.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll });
     return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter 3 results to start" });
@@ -456,7 +455,7 @@ app.post("/roulette/reset", authWithPlan, async (req, res) => {
     await connectDB();
     const { bankroll } = req.body;
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Valid bankroll required" });
-    const baseUnit = fmt(bankroll * 0.005);
+    const baseUnit = fmt(bankroll * 0.01);
     await RouletteSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await RouletteSession.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll });
     return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter 3 results to start" });
@@ -604,7 +603,7 @@ app.post("/login", async (req, res) => {
       await user.save();
     }
     const token = jwt.sign({ id: String(user._id), username: user.username }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, username: user.username, termsAccepted: !!user.termsAcceptedAt });
+    return res.json({ token, username: user.username, role: user.role || "user", termsAccepted: !!user.termsAcceptedAt });
   } catch (err) { return res.status(500).json({ message: "Login failed", error: err.message }); }
 });
 
@@ -648,7 +647,7 @@ app.post("/game/start", authWithPlan, async (req, res) => {
   try {
     const bankroll = Number(req.body.bankroll);
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
-    const baseUnit = fmt(bankroll * 0.005);
+    const baseUnit = fmt(bankroll * 0.01);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
     return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter 3 results to start" });
@@ -687,7 +686,7 @@ app.post("/game/reset", authWithPlan, async (req, res) => {
   try {
     const bankroll = Number(req.body.bankroll);
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
-    const baseUnit = fmt(bankroll * 0.005);
+    const baseUnit = fmt(bankroll * 0.01);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null, fullHistory: [], bpHistory: [], consecutiveLosses: 0, sessionHandCount: 0, phase: "waiting", currentSuggestion: null, currentUnit: 1 });
     return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter 3 results to start" });
@@ -922,6 +921,71 @@ app.get("/admin/send-report", async (req, res) => {
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   await sendDailyReport();
   return res.json({ message: "Rapor gonderildi" });
+});
+
+// Admin: list players with session stats
+app.get("/admin/players", async (req, res) => {
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  try {
+    await connectDB();
+    const bacSessions = await Session.find().sort({ updatedAt: -1 });
+    const rouSessions = await RouletteSession.find().sort({ updatedAt: -1 });
+    const playerMap = {};
+    for (const s of [...bacSessions, ...rouSessions]) {
+      const key = s.username || String(s.userId).slice(-6);
+      if (!playerMap[key]) playerMap[key] = { username: key, sessions: 0, lastActive: null, lastBalance: null, bankroll: null };
+      playerMap[key].sessions++;
+      if (!playerMap[key].lastActive || s.updatedAt > playerMap[key].lastActive) {
+        playerMap[key].lastActive = s.updatedAt;
+        playerMap[key].lastBalance = fmt(s.balance);
+        playerMap[key].bankroll = s.bankroll;
+      }
+    }
+    return res.json(Object.values(playerMap).sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0)));
+  } catch (err) { return res.status(500).json({ message: err.message }); }
+});
+
+// Admin: per-player CSV (baccarat + roulette)
+app.get("/admin/export-csv/:username", async (req, res) => {
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  try {
+    await connectDB();
+    const { username } = req.params;
+    const bacSessions = await Session.find({ username }).sort({ startedAt: -1 });
+    const rouSessions = await RouletteSession.find({ username }).sort({ startedAt: -1 });
+    const rows = ["\uFEFFOyun,Oturum,Tarih,Sure(dk),Bankroll,Birim,MaxWin,Son Bakiye,El No,Oneri,Birim Katsayi,Bahis,Sonuc,Net,Bakiye Sonrasi,Faz"];
+    for (const s of bacSessions) {
+      const start = toLocalTime(s.startedAt); const sid = String(s._id).slice(-6);
+      const dur = s.startedAt && s.updatedAt ? Math.round((s.updatedAt - s.startedAt) / 60000) : "-";
+      const maxWin = fmt(s.maxWin || s.bankroll); const finalBal = fmt(s.balance);
+      if (!s.handLog || s.handLog.length === 0) {
+        rows.push(`Baccarat,${sid},${start},${dur},${s.bankroll},${s.baseUnit},${maxWin},${finalBal},,,,,,,,`);
+      } else {
+        for (const h of s.handLog) {
+          const net = h.win ? `+${h.payout ?? h.betAmount}` : `-${h.betAmount}`;
+          rows.push(`Baccarat,${sid},${toLocalTime(h.timestamp)},${dur},${s.bankroll},${s.baseUnit},${maxWin},${finalBal},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${net},${h.balanceAfter ?? ""},${h.phase}`);
+        }
+      }
+    }
+    for (const s of rouSessions) {
+      const start = toLocalTime(s.startedAt); const sid = String(s._id).slice(-6);
+      const dur = s.startedAt && s.updatedAt ? Math.round((s.updatedAt - s.startedAt) / 60000) : "-";
+      const maxWin = fmt(s.maxWin || s.bankroll); const finalBal = fmt(s.balance);
+      if (!s.handLog || s.handLog.length === 0) {
+        rows.push(`Roulette,${sid},${start},${dur},${s.bankroll},${s.baseUnit},${maxWin},${finalBal},,,,,,,,`);
+      } else {
+        for (const h of s.handLog) {
+          const net = h.win ? `+${h.betAmount}` : `-${h.betAmount}`;
+          rows.push(`Roulette,${sid},${toLocalTime(h.timestamp)},${dur},${s.bankroll},${s.baseUnit},${maxWin},${finalBal},${h.handNo},${h.suggestion},${h.unit},${h.betAmount},${h.result},${net},${h.balanceAfter ?? ""},${h.phase}`);
+        }
+      }
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="rapor-${username}-${new Date().toISOString().slice(0,10)}.csv"`);
+    return res.send(rows.join("\n"));
+  } catch (err) { return res.status(500).json({ message: err.message }); }
 });
 
 // Catch-all: serve React frontend for any non-API route
