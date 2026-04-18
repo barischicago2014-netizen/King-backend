@@ -278,6 +278,12 @@ function processResult(result, s) {
       s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
       s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     }
+    // Stop-loss: -10 birim veya fazla kayıp → çıkış
+    const stopLossFloor = fmt(s.bankroll - 10 * s.baseUnit);
+    if (s.balance <= stopLossFloor) {
+      s.phase = "gameover";
+      return { win: false, gameOver: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "STOP LOSS — -10 birim limitine ulaşıldı", phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    }
     return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "LOSS -" + lostUnit + " units", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
@@ -370,6 +376,11 @@ function rouletteProcessResult(result, s) {
     } else {
       s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     }
+    const stopLossFloorZ = fmt(s.bankroll - 10 * s.baseUnit);
+    if (s.balance <= stopLossFloorZ) {
+      s.phase = "gameover";
+      return buildResponse({ gameOver: true, win: false, message: "STOP LOSS — -10 birim limitine ulaşıldı" });
+    }
     return buildResponse({ win: false, message: "ZERO — LOSS -$" + betAmount });
   }
 
@@ -404,6 +415,15 @@ function rouletteProcessResult(result, s) {
     } else {
       s.suggestion = s.suggestion === "L" ? "H" : "L";
       s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
+    }
+  }
+
+  // Stop-loss check (kayıptan sonra)
+  if (!win) {
+    const stopLossFloor = fmt(s.bankroll - 10 * s.baseUnit);
+    if (s.balance <= stopLossFloor) {
+      s.phase = "gameover";
+      return buildResponse({ gameOver: true, win: false, message: "STOP LOSS — -10 birim limitine ulaşıldı" });
     }
   }
 
