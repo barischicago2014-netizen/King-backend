@@ -244,11 +244,16 @@ function processResult(result, s) {
     const commMsg = commission > 0 ? ` (commission -${commission})` : "";
     const msg = `WIN +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    s.currentUnit = 1;
-    // Game over: bankroll + 1 net unit
+    // Recovery: gap-closing to game over target, max 5u
     const netUnit = s.currentSuggestion === "B" ? fmt(s.baseUnit * 0.95) : s.baseUnit;
     const baseRef = s.targetMax !== null ? s.targetMax : s.bankroll;
     const gameOverTarget = fmt(baseRef + 1 * netUnit);
+    const gap = gameOverTarget - s.balance;
+    let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
+    if (nextUnit < 1) nextUnit = 1;
+    if (nextUnit > 5) nextUnit = 5;
+    const maxAffordable = Math.floor(s.balance / s.baseUnit);
+    s.currentUnit = Math.max(1, Math.min(nextUnit, maxAffordable > 0 ? maxAffordable : nextUnit));
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Target reached! (Target: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
@@ -261,15 +266,9 @@ function processResult(result, s) {
     const lostUnit = s.currentUnit;
     applyLossLevel(s);
     s.consecutiveLosses++;
-    if (s.consecutiveLosses >= 3) {
-      // 3 üst üste kayıp → gözlem yok, flip + sıfırla
-      s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
-      s.currentUnit = 2; s.consecutiveLosses = 0;
-    } else {
-      // Her kayıpta seçenek flip: 1. kayıpta birim 2, 2. kayıpta birim 1
-      s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
-      s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-    }
+    // 1. kayıp → 2u flip, sonraki kayıplar → 1u flip (reset yok)
+    s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     // Stop-loss: -10 birim veya fazla kayıp → çıkış
     const stopLossFloor = fmt(s.bankroll - 10 * s.baseUnit);
     if (s.balance <= stopLossFloor) {
@@ -362,12 +361,8 @@ function rouletteProcessResult(result, s) {
     s.consecutiveLosses++;
     const handEntry = { handNo: (s.handLog ? s.handLog.length + 1 : 1), suggestion: s.suggestion, unit: s.currentUnit, betAmount, result: "Z", win: false, balanceAfter: s.balance, phase: s.phase, timestamp: new Date() };
     if (s.handLog) s.handLog.push(handEntry);
-    if (s.consecutiveLosses >= 3) {
-      s.suggestion = s.suggestion === "L" ? "H" : "L";
-      s.currentUnit = 2; s.consecutiveLosses = 0;
-    } else {
-      s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-    }
+    // Zero: flip yok, 1. kayıp → 2u, sonraki → 1u
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     const stopLossFloorZ = fmt(s.bankroll - 10 * s.baseUnit);
     if (s.balance <= stopLossFloorZ) {
       s.phase = "gameover";
@@ -390,17 +385,20 @@ function rouletteProcessResult(result, s) {
   if (win) {
     s.consecutiveLosses = 0;
     s.suggestion = getLeaderLH(s.fullHistory.filter(x => x !== "Z"));
-    s.currentUnit = 1;
+    // Recovery: gap-closing to game over target, max 5u
+    const goRef = s.targetMax !== null ? s.targetMax : s.bankroll;
+    const goTarget = fmt(goRef + 1 * s.baseUnit);
+    const gap = goTarget - s.balance;
+    let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
+    if (nextUnit < 1) nextUnit = 1;
+    if (nextUnit > 5) nextUnit = 5;
+    const maxAffordable = Math.floor(s.balance / s.baseUnit);
+    s.currentUnit = Math.max(1, Math.min(nextUnit, maxAffordable > 0 ? maxAffordable : nextUnit));
   } else {
     s.consecutiveLosses++;
-    if (s.consecutiveLosses >= 3) {
-      // 3 üst üste kayıp → gözlem yok, flip + sıfırla
-      s.suggestion = s.suggestion === "L" ? "H" : "L";
-      s.currentUnit = 2; s.consecutiveLosses = 0;
-    } else {
-      s.suggestion = s.suggestion === "L" ? "H" : "L";
-      s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-    }
+    // 1. kayıp → 2u flip, sonraki kayıplar → 1u flip (reset yok)
+    s.suggestion = s.suggestion === "L" ? "H" : "L";
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
   }
 
   // Stop-loss check (kayıptan sonra)
