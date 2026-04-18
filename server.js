@@ -244,19 +244,11 @@ function processResult(result, s) {
     const commMsg = commission > 0 ? ` (commission -${commission})` : "";
     const msg = `WIN +${netWin}${commMsg}`;
     s.consecutiveLosses = 0; s.currentSuggestion = leader;
-    // +2 net unit game over target
+    s.currentUnit = 1;
+    // Game over: bankroll + 1 net unit
     const netUnit = s.currentSuggestion === "B" ? fmt(s.baseUnit * 0.95) : s.baseUnit;
     const baseRef = s.targetMax !== null ? s.targetMax : s.bankroll;
     const gameOverTarget = fmt(baseRef + 1 * netUnit);
-    // Gap-closing: aim exactly at game over target
-    const gap = gameOverTarget - s.balance;
-    let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
-    if (nextUnit < 1) nextUnit = 1;
-    if (nextUnit > 5) nextUnit = 5;
-    // Bahis mevcut bakiyeyi geçemez
-    const maxAffordable = Math.floor(s.balance / fmt(s.baseUnit));
-    if (nextUnit > maxAffordable && maxAffordable > 0) nextUnit = maxAffordable;
-    s.currentUnit = nextUnit;
     if (s.balance >= gameOverTarget) {
       s.phase = "gameover";
       return { gameOver: true, win: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: `GAME OVER! Target reached! (Target: ${fmt(gameOverTarget)})`, phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
@@ -398,14 +390,7 @@ function rouletteProcessResult(result, s) {
   if (win) {
     s.consecutiveLosses = 0;
     s.suggestion = getLeaderLH(s.fullHistory.filter(x => x !== "Z"));
-    // Gap-closing unit
-    const goRef = s.targetMax !== null ? s.targetMax : s.bankroll;
-    const goTarget = fmt(goRef + 1 * s.baseUnit);
-    const gap = goTarget - s.balance;
-    let nextUnit = gap > 0 ? Math.ceil(gap / s.baseUnit) : 1;
-    if (nextUnit > 5) nextUnit = 5;
-    const maxAffordable = Math.floor(s.balance / s.baseUnit);
-    s.currentUnit = Math.max(1, Math.min(nextUnit, maxAffordable > 0 ? maxAffordable : nextUnit));
+    s.currentUnit = 1;
   } else {
     s.consecutiveLosses++;
     if (s.consecutiveLosses >= 3) {
