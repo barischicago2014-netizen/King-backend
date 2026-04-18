@@ -269,7 +269,7 @@ function processResult(result, s) {
     s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     // Stop-loss: -10 birim veya fazla kayıp → çıkış
-    const stopLossFloor = fmt(s.bankroll - 10 * s.baseUnit);
+    const stopLossFloor = fmt(s.bankroll - 11 * s.baseUnit);
     if (s.balance <= stopLossFloor) {
       s.phase = "gameover";
       return { win: false, gameOver: true, recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: "STOP LOSS — -10 birim limitine ulaşıldı", phase: "gameover", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
@@ -362,7 +362,7 @@ function rouletteProcessResult(result, s) {
     if (s.handLog) s.handLog.push(handEntry);
     // Zero: flip yok, 1. kayıp → 2u, sonraki → 1u
     s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
-    const stopLossFloorZ = fmt(s.bankroll - 10 * s.baseUnit);
+    const stopLossFloorZ = fmt(s.bankroll - 11 * s.baseUnit);
     if (s.balance <= stopLossFloorZ) {
       s.phase = "gameover";
       return buildResponse({ gameOver: true, win: false, message: "STOP LOSS — -10 birim limitine ulaşıldı" });
@@ -402,7 +402,7 @@ function rouletteProcessResult(result, s) {
 
   // Stop-loss check (kayıptan sonra)
   if (!win) {
-    const stopLossFloor = fmt(s.bankroll - 10 * s.baseUnit);
+    const stopLossFloor = fmt(s.bankroll - 11 * s.baseUnit);
     if (s.balance <= stopLossFloor) {
       s.phase = "gameover";
       return buildResponse({ gameOver: true, win: false, message: "STOP LOSS — -10 birim limitine ulaşıldı" });
