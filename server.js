@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const Anthropic = require("@anthropic-ai/sdk");
 const { Resend } = require("resend");
 const cron = require("node-cron");
+const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
 const app = express();
@@ -13,7 +14,37 @@ const PORT = process.env.PORT || 10000;
 const JWT_SECRET = process.env.JWT_SECRET || "baccarat_jwt_secret_2024";
 
 app.use(express.json());
-app.use(cors());
+
+// CORS — sadece izin verilen domainler
+const allowedOrigins = [
+  "https://trickandtreat.org",
+  "https://www.trickandtreat.org",
+  "http://localhost:3000",
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error("CORS: izin verilmeyen origin"));
+  },
+  credentials: true,
+}));
+
+// Rate limiting — login/register/verify: 10 istek / 15 dakika
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: "Çok fazla deneme, 15 dakika sonra tekrar dene" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Admin endpointleri: 20 istek / 15 dakika
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { message: "Çok fazla istek" },
+});
+
 mongoose.set("strictQuery", true);
 
 async function connectDB() {
@@ -278,7 +309,7 @@ function checkAccess(req, res, next) {
   return next(); // Şimdilik açık, DB kontrolü aşağıda
 }
 
-app.post("/login", async (req, res) => {
+app.post("/login", authLimiter, async (req, res) => {
   try {
     const { username, password, termsAccepted } = req.body;
     if (!username || !password) return res.status(400).json({ message: "Kullanici adi ve sifre gerekli" });
@@ -368,7 +399,7 @@ app.post("/game/finish", authWithPlan, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "Finish basarisiz", error: err.message }); }
 });
 
-app.post("/admin/create-user", async (req, res) => {
+app.post("/admin/create-user", adminLimiter, async (req, res) => {
   const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   try {
@@ -380,7 +411,7 @@ app.post("/admin/create-user", async (req, res) => {
   } catch (err) { return res.status(500).json({ message: err.message }); }
 });
 
-app.post("/admin/set-plan", async (req, res) => {
+app.post("/admin/set-plan", adminLimiter, async (req, res) => {
   const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   try {
@@ -401,7 +432,7 @@ app.post("/admin/set-plan", async (req, res) => {
   } catch (err) { return res.status(500).json({ message: err.message }); }
 });
 
-app.get("/admin/report", async (req, res) => {
+app.get("/admin/report", adminLimiter, async (req, res) => {
   const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   try {
@@ -579,7 +610,7 @@ async function sendDailyReport() {
 
 cron.schedule("0 0 * * *", sendDailyReport);
 
-app.get("/admin/send-report", async (req, res) => {
+app.get("/admin/send-report", adminLimiter, async (req, res) => {
   const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
   if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
   await sendDailyReport();
