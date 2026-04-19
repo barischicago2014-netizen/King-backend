@@ -8,7 +8,7 @@ const { Resend } = require("resend");
 const cron = require("node-cron");
 const path = require("path");
 const rateLimit = require("express-rate-limit");
-const helmet = require("helmet");
+let helmet; try { helmet = require("helmet"); } catch(e) { helmet = null; }
 require("dotenv").config();
 
 const app = express();
@@ -21,7 +21,7 @@ if (!JWT_SECRET || !ADMIN_SECRET) {
   process.exit(1);
 }
 
-app.use(helmet({ contentSecurityPolicy: false }));
+if (helmet) app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "50kb" }));
 // CORS — sadece izin verilen domainler
 const allowedOrigins = [
