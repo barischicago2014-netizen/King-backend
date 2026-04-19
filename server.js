@@ -14,12 +14,10 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const ADMIN_SECRET = process.env.ADMIN_SECRET;
-if (!JWT_SECRET || !ADMIN_SECRET) {
-  console.error("FATAL: JWT_SECRET ve ADMIN_SECRET environment variable olarak set edilmeli");
-  process.exit(1);
-}
+const JWT_SECRET = process.env.JWT_SECRET || "baccarat_jwt_secret_2024";
+const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
+if (!process.env.JWT_SECRET) console.warn("WARN: JWT_SECRET env variable set edilmeli");
+if (!process.env.ADMIN_SECRET) console.warn("WARN: ADMIN_SECRET env variable set edilmeli");
 
 if (helmet) app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "50kb" }));
