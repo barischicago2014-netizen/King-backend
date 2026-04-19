@@ -8,13 +8,21 @@ const { Resend } = require("resend");
 const cron = require("node-cron");
 const path = require("path");
 const rateLimit = require("express-rate-limit");
+const helmet = require("helmet");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const JWT_SECRET = process.env.JWT_SECRET || "baccarat_jwt_secret_2024";
 
-app.use(express.json());
+const JWT_SECRET = process.env.JWT_SECRET;
+const ADMIN_SECRET = process.env.ADMIN_SECRET;
+if (!JWT_SECRET || !ADMIN_SECRET) {
+  console.error("FATAL: JWT_SECRET ve ADMIN_SECRET environment variable olarak set edilmeli");
+  process.exit(1);
+}
+
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(express.json({ limit: "50kb" }));
 // CORS — sadece izin verilen domainler
 const allowedOrigins = [
   "https://trickandtreat.org",
@@ -42,6 +50,13 @@ const authLimiter = rateLimit({
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  message: { message: "Çok fazla istek" },
+});
+
+// Game endpointleri: 300 istek / 15 dakika
+const gameLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
   message: { message: "Çok fazla istek" },
 });
 
@@ -631,10 +646,17 @@ async function createUser(username, password) {
 }
 
 
+function requireAdmin(req, res) {
+  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) {
+    res.status(403).json({ message: "Yetkisiz" });
+    return false;
+  }
+  return true;
+}
+
 // Bootstrap: create or repair admin users
 app.post("/admin/bootstrap", async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Unauthorized" });
+  if (!requireAdmin(req, res)) return;
   try {
     await connectDB();
     const { username, password } = req.body;
@@ -658,7 +680,7 @@ app.post("/admin/bootstrap", async (req, res) => {
   } catch (err) { return res.status(500).json({ message: err.message }); }
 });
 
-app.post("/game/start", authWithPlan, async (req, res) => {
+app.post("/game/start", gameLimiter, authWithPlan, async (req, res) => {
   try {
     const bankroll = Number(req.body.bankroll);
     if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Gecerli bir bankroll girin" });
@@ -677,7 +699,7 @@ app.get("/game/state", auth, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "State alinamadi", error: err.message }); }
 });
 
-app.post("/game/result", authWithPlan, async (req, res) => {
+app.post("/game/result", gameLimiter, authWithPlan, async (req, res) => {
   try {
     const { result, sessionId } = req.body;
     let session = null;
@@ -719,8 +741,7 @@ app.post("/game/finish", authWithPlan, async (req, res) => {
 });
 
 app.post("/admin/create-user", adminLimiter, async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  if (!requireAdmin(req, res)) return;
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: "Eksik bilgi" });
@@ -731,8 +752,7 @@ app.post("/admin/create-user", adminLimiter, async (req, res) => {
 });
 
 app.post("/admin/set-plan", adminLimiter, async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  if (!requireAdmin(req, res)) return;
   try {
     const { username, plan, months, exempt, role, emailVerified } = req.body;
     const user = await User.findOne({ username: username.toLowerCase() });
@@ -753,8 +773,7 @@ app.post("/admin/set-plan", adminLimiter, async (req, res) => {
 });
 
 app.get("/admin/report", adminLimiter, async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  if (!requireAdmin(req, res)) return;
   try {
     const users = await User.find().sort({ createdAt: -1 });
     const sessions = await Session.find().sort({ updatedAt: -1 });
@@ -791,8 +810,7 @@ app.get("/admin/report", adminLimiter, async (req, res) => {
 });
 
 app.get("/admin/export-csv", async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  if (!requireAdmin(req, res)) return;
   try {
     const sessions = await Session.find().sort({ startedAt: -1 });
     const rows = ["Oyuncu,Oturum No,Baslangic,Bitis,Sure(dk),Bankroll,BaseUnit,El No,Oneri,Birim,Bahis Tutari,Sonuc,Kazanc/Kayip,Bakiye,Faz"];
@@ -932,16 +950,14 @@ async function sendDailyReport() {
 cron.schedule("0 0 * * *", sendDailyReport);
 
 app.get("/admin/send-report", adminLimiter, async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  if (!requireAdmin(req, res)) return;
   await sendDailyReport();
   return res.json({ message: "Rapor gonderildi" });
 });
 
 // Admin: list players with session stats
 app.get("/admin/players", async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  if (!requireAdmin(req, res)) return;
   try {
     await connectDB();
     const bacSessions = await Session.find().sort({ updatedAt: -1 });
@@ -963,8 +979,7 @@ app.get("/admin/players", async (req, res) => {
 
 // Admin: per-player CSV (baccarat + roulette)
 app.get("/admin/export-csv/:username", async (req, res) => {
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || "baccarat_admin_2024";
-  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ message: "Yetkisiz" });
+  if (!requireAdmin(req, res)) return;
   try {
     await connectDB();
     const { username } = req.params;
