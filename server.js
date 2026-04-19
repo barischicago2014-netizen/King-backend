@@ -542,7 +542,6 @@ function checkAccess(req, res, next) {
   return next(); // Şimdilik açık, DB kontrolü aşağıda
 }
 
-<<<<<<< HEAD
 app.post("/signup", async (req, res) => {
   try {
     await connectDB();
@@ -553,9 +552,8 @@ app.post("/signup", async (req, res) => {
     if (existing) return res.status(400).json({ message: "Username or email already in use" });
     const hashed = await bcrypt.hash(password, 10);
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    const expiry = new Date(Date.now() + 15 * 60 * 1000);
     const user = await User.create({ username: username.toLowerCase(), email: email.toLowerCase(), password: hashed, verificationCode: code, verificationExpiry: expiry });
-    // Send verification email
     if (resendClient) {
       await resendClient.emails.send({
         from: "King Strategy <noreply@king-strategy.com>",
@@ -609,10 +607,7 @@ app.post("/resend-code", async (req, res) => {
   } catch (err) { return res.status(500).json({ message: err.message }); }
 });
 
-app.post("/login", async (req, res) => {
-=======
 app.post("/login", authLimiter, async (req, res) => {
->>>>>>> working-checkpoint
   try {
     await connectDB();
     const { username, password, termsAccepted } = req.body;
