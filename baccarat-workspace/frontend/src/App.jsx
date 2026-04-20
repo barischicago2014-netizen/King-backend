@@ -482,7 +482,7 @@ export default function App() {
   if (screen === "game") {
     const sc = gs?.scoreboard || { B: 0, P: 0, T: 0 };
     const phase = gs?.phase;
-    const gameTarget = gs?.targetMax ?? (gs?.bankroll != null && gs?.baseUnit != null ? gs.bankroll + 3 * gs.baseUnit : null);
+    const gameTarget = gs?.targetMax ?? (gs?.bankroll != null && gs?.baseUnit != null ? gs.bankroll + gs.baseUnit * 0.8 : null);
     return (
       <div style={S.page}>
         <div style={S.header}>
