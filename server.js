@@ -259,16 +259,16 @@ function processResult(result, s) {
     const remaining = target - s.observationCount;
     return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Observation: ${remaining} hand${remaining !== 1 ? "s" : ""} remaining` : "Observation done — betting resumes", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
-  if (s.bpHistory.length < 3) return { recommendation: null, unit: null, actualBet: null, balance: fmt(s.balance), scoreboard, history, message: (3 - s.bpHistory.length) + " more results needed", phase: "waiting", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
-  // leader: 3 setup eli dahil tam geçmişe bakarak hesapla
+  // 1 el giriş: oyuncu favori tarafını seçer, sistem oradan başlar
   const leader = getLeader(s.bpHistory);
   if (r === "T") {
-    if (!s.currentSuggestion) { s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1; s.phase = "active"; }
+    if (!s.currentSuggestion) { s.currentSuggestion = "B"; s.currentUnit = 1; s.phase = "active"; }
     return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: "TIE", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   if (!s.currentSuggestion) {
-    s.currentSuggestion = leader; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
-    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "System ready — first bet: " + s.currentSuggestion, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+    // İlk el: oyuncunun girdiği taraf = favori → sistem aynı tarafla başlar
+    s.currentSuggestion = r; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
+    return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "Enter Your Favorite — next bet: " + s.currentSuggestion, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   const win = r === s.currentSuggestion;
   const handEntry = { handNo: s.handLog ? s.handLog.length + 1 : 1, suggestion: s.currentSuggestion, unit: s.currentUnit, betAmount: fmt(s.currentUnit * s.baseUnit), result: r, win, phase: s.phase, timestamp: new Date() };
@@ -454,7 +454,7 @@ app.post("/roulette/start", authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.01);
     await RouletteSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await RouletteSession.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll });
-    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter 3 results to start" });
+    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter Your Favorite" });
   } catch (err) { return res.status(500).json({ message: "Start failed", error: err.message }); }
 });
 
@@ -482,7 +482,7 @@ app.post("/roulette/reset", authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.01);
     await RouletteSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await RouletteSession.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll });
-    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter 3 results to start" });
+    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { L: 0, H: 0, Z: 0 }, phase: "waiting", history: [], suggestion: null, unit: 1, message: "Enter Your Favorite" });
   } catch (err) { return res.status(500).json({ message: "Reset failed", error: err.message }); }
 });
 
@@ -680,7 +680,7 @@ app.post("/game/start", gameLimiter, authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.01);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null });
-    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter 3 results to start" });
+    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter Your Favorite" });
   } catch (err) { return res.status(500).json({ message: "Oyun baslatılamadi", error: err.message }); }
 });
 
@@ -719,7 +719,7 @@ app.post("/game/reset", authWithPlan, async (req, res) => {
     const baseUnit = fmt(bankroll * 0.01);
     await Session.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     const session = await Session.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll, maxWin: bankroll, lossLevel: 0, targetMax: null, fullHistory: [], bpHistory: [], consecutiveLosses: 0, sessionHandCount: 0, phase: "waiting", currentSuggestion: null, currentUnit: 1 });
-    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter 3 results to start" });
+    return res.json({ sessionId: String(session._id), balance: session.balance, maxWin: session.maxWin, bankroll, baseUnit, lossLevel: 0, targetMax: null, scoreboard: { B: 0, P: 0, T: 0 }, recommendation: null, unit: null, actualBet: null, phase: "waiting", history: [], message: "Enter Your Favorite" });
   } catch (err) { return res.status(500).json({ message: "Reset basarisiz", error: err.message }); }
 });
 
