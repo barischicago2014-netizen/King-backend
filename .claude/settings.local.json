@@ -21,7 +21,8 @@
       "Bash(/opt/homebrew/bin/git -C \"/Users/barisarmagan/Desktop/King backend\" push origin main)",
       "Bash(export PATH=\"/Users/barisarmagan/.nvm/versions/node/v24.14.1/bin:$PATH\")",
       "Bash(/Users/barisarmagan/.nvm/versions/node/v24.14.1/bin/node -e \"\")",
-      "Bash(python3 /tmp/test_baccarat.py)"
+      "Bash(python3 /tmp/test_baccarat.py)",
+      "Bash(/usr/local/bin/git push *)"
     ]
   }
 }

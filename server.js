@@ -368,11 +368,8 @@ function rouletteProcessResult(result, s) {
 
   // ── WAITING phase ──────────────────────────────────────────────────────────
   if (s.phase === "waiting") {
-    const nonZero = s.fullHistory.filter(x => x !== "Z");
-    if (nonZero.length < 3) {
-      return buildResponse({ message: (3 - nonZero.length) + " more results needed" });
-    }
-    s.suggestion = getLeaderLH(nonZero);
+    if (isZero) return buildResponse({ message: "ZERO — enter your favorite side (L/H) to start" });
+    s.suggestion = result; // ilk non-zero = oyuncunun favorisi
     s.currentUnit = 1;
     s.phase = "active";
     return buildResponse({ message: "System ready — " + (s.suggestion === "L" ? "LOW" : "HIGH") });
