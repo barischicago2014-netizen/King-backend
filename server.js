@@ -222,17 +222,17 @@ function getScoreboard(history) {
 }
 function fmt(n) { return Number(n.toFixed(2)); }
 function getLossThreshold(initialBankroll, lossLevel) {
-  const percentages = [0.97, 0.92, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65];
+  const percentages = [0.92, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65];
   return initialBankroll * percentages[Math.min(lossLevel, percentages.length - 1)];
 }
 function applyLossLevel(s) {
-  const pcts = [0.97, 0.92, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65];
+  const pcts = [0.92, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65];
   let level = 0;
   for (let i = 0; i < pcts.length; i++) {
     if (s.balance < s.bankroll * pcts[i]) level = i + 1;
     else break;
   }
-  s.lossLevel = Math.min(level, 7);
+  s.lossLevel = Math.min(level, 6);
   if (s.lossLevel > 0) {
     // Baraj tetiklendi veya derinleşti → targetMax güncelle
     s.targetMax = fmt(s.bankroll * pcts[s.lossLevel - 1]);
