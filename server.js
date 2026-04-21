@@ -118,6 +118,7 @@ const SessionSchema = new mongoose.Schema({
   currentSuggestion: { type: String, default: null },
   currentUnit: { type: Number, default: 1 },
   isActive: { type: Boolean, default: true },
+  limitWarned: { type: Boolean, default: false },
   startedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   handLog: [{
@@ -221,11 +222,11 @@ function getScoreboard(history) {
 }
 function fmt(n) { return Number(n.toFixed(2)); }
 function getLossThreshold(initialBankroll, lossLevel) {
-  const percentages = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+  const percentages = [0.97, 0.92, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65];
   return initialBankroll * percentages[Math.min(lossLevel, percentages.length - 1)];
 }
 function applyLossLevel(s) {
-  const pcts = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+  const pcts = [0.97, 0.92, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65];
   let level = 0;
   for (let i = 0; i < pcts.length; i++) {
     if (s.balance < s.bankroll * pcts[i]) level = i + 1;
@@ -248,6 +249,12 @@ function processResult(result, s) {
   s.updatedAt = new Date();
   const scoreboard = getScoreboard(s.fullHistory);
   const history = s.fullHistory.slice(-20);
+  // El limiti: 10 bahis elinde uyar
+  const betHandCount = s.handLog ? s.handLog.length : 0;
+  if (betHandCount >= 10 && s.phase === "active" && !s.limitWarned) {
+    s.limitWarned = true;
+    return { tableLimit: true, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "It's better to switch table. If you wish to continue press OK or Exit.", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
+  }
   // Gözlem modu: 3 üst üste kayıptan sonra progressive gözlem (1→2→3 el)
   if (s.phase === "observation") {
     s.observationCount = (s.observationCount || 0) + 1;

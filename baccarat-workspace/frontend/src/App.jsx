@@ -45,6 +45,7 @@ export default function App() {
   const [flash, setFlash] = useState(null);
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [showTableLimit, setShowTableLimit] = useState(false);
   // Roulette state
   const [rgs, setRgs] = useState(null);
   const [rSessionId, setRSessionId] = useState(null);
@@ -185,6 +186,10 @@ export default function App() {
       setLastResult(result);
       if (res.data.sessionId) setSessionId(res.data.sessionId);
       setGs((prev) => ({ ...prev, ...res.data }));
+      if (res.data.tableLimit) {
+        setShowTableLimit(true);
+        return;
+      }
       if (res.data.win === true) {
         showFlash(`+${res.data.actualBet}`, C.green);
         setAiData(null);
@@ -485,6 +490,18 @@ export default function App() {
     const gameTarget = gs?.targetMax ?? (gs?.bankroll != null && gs?.baseUnit != null ? gs.bankroll + gs.baseUnit * 0.8 : null);
     return (
       <div style={S.page}>
+        {showTableLimit && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
+            <div style={{ background: "#1a1a2e", border: "1px solid #f5c518", borderRadius: 12, padding: 28, maxWidth: 320, textAlign: "center" }}>
+              <div style={{ color: "#f5c518", fontWeight: "bold", fontSize: 16, marginBottom: 12 }}>Table Limit Reached</div>
+              <div style={{ color: "#ccc", fontSize: 14, marginBottom: 20 }}>It's better to switch table. If you wish to continue press OK or Exit.</div>
+              <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+                <button style={{ ...S.btn, background: C.green, padding: "10px 24px" }} onClick={() => setShowTableLimit(false)}>OK</button>
+                <button style={{ ...S.btn, background: C.red, padding: "10px 24px" }} onClick={() => { setShowTableLimit(false); finishGame(); }}>Exit</button>
+              </div>
+            </div>
+          </div>
+        )}
         <div style={S.header}>
           <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
           <div style={{ textAlign: "center" }}>
