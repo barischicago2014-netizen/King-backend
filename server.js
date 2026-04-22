@@ -190,6 +190,29 @@ const KingOfStandSchema = new mongoose.Schema({
 });
 const KingOfStand = mongoose.models.KingOfStand || mongoose.model("KingOfStand", KingOfStandSchema);
 
+const RouletteKOSSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  username: { type: String, default: null },
+  bankroll: { type: Number, default: 100 },
+  baseUnit: { type: Number, default: 1 },
+  balance: { type: Number, default: 100 },
+  side: { type: String, default: null },       // "L" veya "H" — sabit
+  lossStep: { type: Number, default: 0 },
+  totalLosses: { type: Number, default: 0 },
+  phase: { type: String, default: "waiting" },
+  observationCount: { type: Number, default: 0 },
+  isActive: { type: Boolean, default: true },
+  startedAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  fullHistory: [{ type: String }],
+  handLog: [{
+    handNo: Number, side: String, unit: Number,
+    betAmount: Number, result: String, win: Boolean,
+    balanceAfter: Number, phase: String, timestamp: Date,
+  }],
+});
+const RouletteKOS = mongoose.models.RouletteKOS || mongoose.model("RouletteKOS", RouletteKOSSchema);
+
 function kosProcessResult(result, s) {
   const r = String(result).toUpperCase().trim();
   if (!["B", "P", "T"].includes(r)) throw new Error("Gecersiz sonuc");
@@ -251,6 +274,61 @@ function kosProcessResult(result, s) {
       return { win: false, phase: "observation", message: `LOSS -${betAmount} — Observation: 3 hands`, side: s.side, scoreboard, history, balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit };
     }
     return { win: false, phase: "active", message: `LOSS -${betAmount}`, side: s.side, unit: KOS_SEQ[s.lossStep], actualBet: fmt(KOS_SEQ[s.lossStep] * s.baseUnit), scoreboard, history, balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit };
+  }
+}
+
+function rouletteKosProcessResult(result, s) {
+  const r = String(result).toUpperCase().trim();
+  if (!["L", "H", "Z"].includes(r)) throw new Error("Gecersiz sonuc");
+  s.fullHistory.push(r);
+  s.updatedAt = new Date();
+  const sc = { L: s.fullHistory.filter(x=>x==="L").length, H: s.fullHistory.filter(x=>x==="H").length, Z: s.fullHistory.filter(x=>x==="Z").length };
+  const history = s.fullHistory.slice(-20);
+  const base = { scoreboard: sc, history, balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit };
+
+  if (s.phase === "gameover") return { gameOver: true, ...base };
+
+  if (s.phase === "waiting") {
+    if (r === "Z") return { phase: "waiting", message: "ZERO — Enter scoreboard leader (L or H)", ...base };
+    s.side = r; s.phase = "active"; s.lossStep = 0;
+    return { phase: "active", message: "System ready — betting " + r, side: s.side, unit: KOS_SEQ[0], actualBet: fmt(KOS_SEQ[0] * s.baseUnit), ...base };
+  }
+
+  if (s.phase === "observation") {
+    s.observationCount++;
+    if (s.observationCount >= 3) {
+      s.phase = "active"; s.observationCount = 0;
+      return { phase: "active", message: "Observation done — bet " + s.side, side: s.side, unit: KOS_SEQ[s.lossStep], actualBet: fmt(KOS_SEQ[s.lossStep] * s.baseUnit), ...base };
+    }
+    return { phase: "observation", message: `Observation: ${3 - s.observationCount} hand(s) remaining`, ...base };
+  }
+
+  const betUnit = KOS_SEQ[s.lossStep];
+  const betAmount = fmt(betUnit * s.baseUnit);
+  const win = r === s.side; // Z = loss (not win)
+  const handEntry = { handNo: (s.handLog?.length || 0) + 1, side: s.side, unit: betUnit, betAmount, result: r, win: win && r !== "Z", phase: s.phase, timestamp: new Date() };
+
+  if (win) {
+    s.balance = fmt(s.balance + betAmount); // no commission in roulette
+    handEntry.balanceAfter = s.balance;
+    if (s.handLog) s.handLog.push(handEntry);
+    s.phase = "gameover"; s.isActive = false;
+    return { gameOver: true, win: true, pnl: fmt(s.balance - s.bankroll), message: `GAME OVER! WIN +${betAmount}`, ...base };
+  } else {
+    s.balance = fmt(s.balance - betAmount);
+    handEntry.balanceAfter = s.balance;
+    if (s.handLog) s.handLog.push(handEntry);
+    s.lossStep++; s.totalLosses++;
+    if (s.lossStep >= KOS_SEQ.length) {
+      s.phase = "gameover"; s.isActive = false;
+      return { gameOver: true, win: false, pnl: fmt(s.balance - s.bankroll), message: `GAME OVER! Loss: ${fmt(s.bankroll - s.balance)}`, ...base };
+    }
+    const obsMsg = r === "Z" ? `ZERO — LOSS -${betAmount}` : `LOSS -${betAmount}`;
+    if (s.totalLosses % 3 === 0) {
+      s.phase = "observation"; s.observationCount = 0;
+      return { win: false, phase: "observation", message: `${obsMsg} — Observation: 3 hands`, side: s.side, ...base };
+    }
+    return { win: false, phase: "active", message: obsMsg, side: s.side, unit: KOS_SEQ[s.lossStep], actualBet: fmt(KOS_SEQ[s.lossStep] * s.baseUnit), ...base };
   }
 }
 
@@ -654,6 +732,58 @@ app.post("/kos/finish", authWithPlan, async (req, res) => {
     if (!session) return res.status(404).json({ message: "No active session" });
     const finalBalance = fmt(session.balance);
     await KingOfStand.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    return res.json({ message: "Game finished", balance: finalBalance });
+  } catch (err) { return res.status(500).json({ message: "Finish failed", error: err.message }); }
+});
+
+// ═══ ROULETTE KING OF STAND ROUTES ══════════════════════════════════════════
+
+app.post("/rkos/start", authWithPlan, async (req, res) => {
+  try {
+    await connectDB();
+    const { bankroll } = req.body;
+    if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Valid bankroll required" });
+    const baseUnit = fmt(bankroll * 0.01);
+    await RouletteKOS.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    const session = await RouletteKOS.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll });
+    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, phase: "waiting", scoreboard: { L: 0, H: 0, Z: 0 }, history: [], message: "Enter scoreboard leader (L or H)" });
+  } catch (err) { return res.status(500).json({ message: "Start failed", error: err.message }); }
+});
+
+app.post("/rkos/result", authWithPlan, async (req, res) => {
+  try {
+    await connectDB();
+    const { result, sessionId } = req.body;
+    const query = sessionId ? { _id: sessionId, userId: req.user.id, isActive: true } : { userId: req.user.id, isActive: true };
+    const session = await RouletteKOS.findOne(query).sort({ updatedAt: -1 });
+    if (!session) return res.status(404).json({ message: "No active session" });
+    const state = rouletteKosProcessResult(result, session);
+    session.markModified("fullHistory"); session.markModified("handLog");
+    if (state.gameOver) session.isActive = false;
+    await session.save();
+    return res.json({ sessionId: String(session._id), ...state });
+  } catch (err) { return res.status(500).json({ message: "Result failed", error: err.message }); }
+});
+
+app.post("/rkos/reset", authWithPlan, async (req, res) => {
+  try {
+    await connectDB();
+    const { bankroll } = req.body;
+    if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Valid bankroll required" });
+    const baseUnit = fmt(bankroll * 0.01);
+    await RouletteKOS.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    const session = await RouletteKOS.create({ userId: req.user.id, username: req.user.username, bankroll, baseUnit, balance: bankroll });
+    return res.json({ sessionId: String(session._id), balance: bankroll, bankroll, baseUnit, phase: "waiting", scoreboard: { L: 0, H: 0, Z: 0 }, history: [], message: "Enter scoreboard leader (L or H)" });
+  } catch (err) { return res.status(500).json({ message: "Reset failed", error: err.message }); }
+});
+
+app.post("/rkos/finish", authWithPlan, async (req, res) => {
+  try {
+    await connectDB();
+    const session = await RouletteKOS.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    if (!session) return res.status(404).json({ message: "No active session" });
+    const finalBalance = fmt(session.balance);
+    await RouletteKOS.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
     return res.json({ message: "Game finished", balance: finalBalance });
   } catch (err) { return res.status(500).json({ message: "Finish failed", error: err.message }); }
 });

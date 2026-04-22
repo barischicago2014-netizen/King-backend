@@ -56,6 +56,10 @@ export default function App() {
   const [kosSessionId, setKosSessionId] = useState(null);
   const [kosLastResult, setKosLastResult] = useState(null);
   const kosInFlight = useRef(false);
+  // Roulette King of Stand state
+  const [rkos, setRkos] = useState(null);
+  const [rkosSessionId, setRkosSessionId] = useState(null);
+  const rkosInFlight = useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -81,7 +85,7 @@ export default function App() {
       localStorage.setItem("bac_role", res.data.role || "user");
       setUser({ token: res.data.token, username: res.data.username, role: res.data.role || "user" });
       setForm({ username: "", password: "" });
-      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : selectedGame === "kos" ? "kos-bankroll" : "bankroll");
+      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : selectedGame === "kos" ? "kos-bankroll" : selectedGame === "rkos" ? "rkos-bankroll" : "bankroll");
     } catch (err) {
       const code = err.response?.data?.code;
       const username = err.response?.data?.username;
@@ -341,6 +345,50 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+  async function startRkos(amount) {
+    setLoading(true);
+    try {
+      const res = await api.post("/rkos/start", { bankroll: amount });
+      setRkos(res.data); setRkosSessionId(res.data.sessionId || null);
+      setScreen("rkos-game");
+    } finally { setLoading(false); }
+  }
+
+  async function addRkosResult(result) {
+    if (rkosInFlight.current || rkos?.gameOver) return;
+    rkosInFlight.current = true; setLoading(true);
+    try {
+      const res = await api.post("/rkos/result", { result, sessionId: rkosSessionId });
+      rkosInFlight.current = false; setLoading(false);
+      if (res.data.sessionId) setRkosSessionId(res.data.sessionId);
+      setRkos((prev) => ({ ...prev, ...res.data }));
+      if (res.data.win === true) showFlash("WIN!", C.green);
+      else if (res.data.win === false) showFlash("LOSS", C.red);
+    } catch (err) {
+      rkosInFlight.current = false; setLoading(false);
+      if (err.response?.status === 404) setScreen("rkos-bankroll");
+    }
+  }
+
+  async function finishRkosGame() {
+    if (!window.confirm("End this game? A new game will start with your current balance.")) return;
+    setLoading(true);
+    try {
+      const res = await api.post("/rkos/finish");
+      const startRes = await api.post("/rkos/reset", { bankroll: res.data.balance });
+      setRkos(startRes.data); setRkosSessionId(startRes.data.sessionId || null);
+    } finally { setLoading(false); }
+  }
+
+  async function resetRkosGame() {
+    const newBankroll = rkos?.balance || rkos?.bankroll || 100;
+    setLoading(true);
+    try {
+      const res = await api.post("/rkos/reset", { bankroll: newBankroll });
+      setRkos(res.data); setRkosSessionId(res.data.sessionId || null);
+    } finally { setLoading(false); }
+  }
+
   async function resetGame() {
     const newBankroll = gs?.balance || gs?.bankroll || 100;
     setLoading(true);
@@ -396,6 +444,7 @@ export default function App() {
           <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("baccarat"); setScreen("login"); }}>Sign In — Baccarat</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#cc2233", border: "2px solid #cc2233", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("roulette"); setScreen("login"); }}>Sign In — Roulette</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#4488ff", border: "2px solid #4488ff", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("kos"); setScreen(user ? "kos-bankroll" : "login"); }}>Sign In — King of Stand</button>
+          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#44bbaa", border: "2px solid #44bbaa", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("rkos"); setScreen(user ? "rkos-bankroll" : "login"); }}>Sign In — Roulette Stand</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
           {user?.role === "admin" && (
             <button style={{ padding: "9px 0", width: "100%", maxWidth: 300, fontSize: 13, backgroundColor: "transparent", color: "#888", border: "1px solid #333", borderRadius: 6, cursor: "pointer" }} onClick={() => setScreen("admin")}>Admin Panel</button>
@@ -788,6 +837,151 @@ export default function App() {
 
   if (screen === "admin") {
     return <AdminPanel user={user} onBack={() => setScreen("landing")} />;
+  }
+
+  // ═══ ROULETTE KING OF STAND — BANKROLL ══════════════════════════════════
+  if (screen === "rkos-bankroll") {
+    const unitPreview = bankrollInput ? `$${(parseFloat(bankrollInput) * 0.01).toFixed(2)}` : null;
+    return (
+      <div style={S.page}><div style={S.content}>
+        <div style={{ backgroundColor: C.card, border: "1px solid #44bbaa", padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 36, marginBottom: 4 }}>🎡</div>
+            <div style={{ color: C.gray, fontSize: 13, marginBottom: 4 }}>👤 {user?.username}</div>
+            <h2 style={{ color: "#44bbaa", fontSize: 22, margin: 0 }}>Roulette Stand</h2>
+            <p style={{ color: C.gray, fontSize: 12, margin: "8px 0 0" }}>Enter Bankroll</p>
+          </div>
+          <input style={{ ...S.input, marginBottom: 8, fontSize: 22, textAlign: "center" }} type="number" placeholder="0" value={bankrollInput} onChange={(e) => setBankrollInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && startRkos(parseFloat(bankrollInput))} autoFocus />
+          {unitPreview && <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>Unit: <span style={{ color: "#44bbaa" }}>{unitPreview}</span> (1%)</p>}
+          <button style={{ ...S.btnGold, backgroundColor: "#44bbaa", color: "#000", marginBottom: 10 }} onClick={() => startRkos(parseFloat(bankrollInput))} disabled={loading}>{loading ? "..." : "Start"}</button>
+          <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Sign Out</button>
+        </div>
+      </div></div>
+    );
+  }
+
+  // ═══ ROULETTE KING OF STAND — GAME ═══════════════════════════════════════
+  if (screen === "rkos-game") {
+    const sc = rkos?.scoreboard || { L: 0, H: 0, Z: 0 };
+    const phase = rkos?.phase;
+    const KOS_SEQ = [1, 2, 3, 5, 3, 2, 1, 2, 3, 5];
+    const stepIdx = rkos?.lossStep ?? 0;
+    const betAmt = rkos?.actualBet ?? (KOS_SEQ[stepIdx] * (rkos?.baseUnit ?? 1));
+    const balance = rkos?.balance ?? rkos?.bankroll ?? 100;
+    const bankroll = rkos?.bankroll ?? 100;
+    const target10 = bankroll * 1.10;
+    const progress = Math.min(100, Math.max(0, ((balance - bankroll) / (target10 - bankroll)) * 100));
+    const pnl = balance - bankroll;
+
+    const btnStyle = (side) => ({
+      flex: 1, height: 80, fontSize: 24, fontWeight: "bold",
+      backgroundColor: side === "L" ? (rkos?.side === side ? "#0d3a2a" : "#071a14") : (rkos?.side === side ? "#2a1a0d" : "#140d07"),
+      color: C.white,
+      border: rkos?.side === side ? "2px solid #44bbaa" : "2px solid #333",
+      borderRadius: 12, cursor: "pointer",
+      WebkitTapHighlightColor: "transparent", touchAction: "manipulation", letterSpacing: 2,
+    });
+
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#44bbaa", fontWeight: "bold", fontSize: 20 }}>{balance.toFixed(2)}</div>
+            <div style={{ color: pnl >= 0 ? C.green : C.red, fontSize: 11 }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}</div>
+          </div>
+          <div style={{ textAlign: "right", fontSize: 10, color: C.gray }}>
+            <div>unit: ${rkos?.baseUnit?.toFixed(2)}</div>
+            <div style={{ color: stepIdx > 5 ? C.red : C.gray }}>Step {stepIdx + 1}/10</div>
+          </div>
+        </div>
+
+        <div style={S.content}>
+          <div style={S.scoreboard}>
+            {[{ l: "LOW", k: "L", c: "#44bbaa" }, { l: "HIGH", k: "H", c: C.gold }, { l: "ZERO", k: "Z", c: "#556" }].map(({ l, k, c }) => (
+              <div key={k} style={{ textAlign: "center" }}>
+                <div style={{ color: c, fontSize: 12, fontWeight: "bold" }}>{l}</div>
+                <div style={{ fontSize: 20, fontWeight: "bold" }}>{sc[k]}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ backgroundColor: C.card, borderRadius: 12, padding: "12px 16px", marginBottom: 10, border: "1px solid #222" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              {phase === "waiting" ? (
+                <div style={{ color: C.gray, fontSize: 13 }}>Enter scoreboard leader (L or H)</div>
+              ) : phase === "observation" ? (
+                <div style={{ color: "#ffaa44", fontSize: 13, fontWeight: "bold" }}>{rkos?.message}</div>
+              ) : rkos?.gameOver ? (
+                <div style={{ color: rkos?.win ? C.green : C.red, fontSize: 15, fontWeight: "bold" }}>
+                  {rkos?.win ? "WIN ✓" : "LOSS ✗"} &nbsp; PNL: {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <div style={{ color: C.gray, fontSize: 10, letterSpacing: 1 }}>BET ON</div>
+                    <div style={{ color: "#44bbaa", fontSize: 20, fontWeight: "bold", lineHeight: 1 }}>{rkos?.side === "L" ? "LOW" : rkos?.side === "H" ? "HIGH" : "—"}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: C.gray, fontSize: 10 }}>Step {stepIdx + 1} · {KOS_SEQ[stepIdx]}u</div>
+                    <div style={{ color: C.gold, fontSize: 18, fontWeight: "bold" }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
+                  </div>
+                </>
+              )}
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <span style={{ color: C.gray, fontSize: 10 }}>Loss sequence</span>
+                <span style={{ color: C.gray, fontSize: 10 }}>{KOS_SEQ.join(" · ")}</span>
+              </div>
+              <div style={{ display: "flex", gap: 3 }}>
+                {KOS_SEQ.map((u, i) => (
+                  <div key={i} style={{ flex: u, height: 6, borderRadius: 3, backgroundColor: i < stepIdx ? "#c0392b" : i === stepIdx && phase === "active" ? "#44bbaa" : "#2a2a3a" }} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <span style={{ color: C.gray, fontSize: 10 }}>Daily target +10%</span>
+                <span style={{ color: progress >= 100 ? C.green : C.gold, fontSize: 10, fontWeight: "bold" }}>{progress.toFixed(0)}%</span>
+              </div>
+              <div style={{ height: 8, backgroundColor: "#1a1a2a", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 4, width: `${Math.max(0, progress)}%`, backgroundColor: progress >= 100 ? C.green : progress >= 60 ? C.gold : "#44bbaa", transition: "width 0.4s ease" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                <span style={{ color: C.gray, fontSize: 9 }}>${bankroll.toFixed(0)}</span>
+                <span style={{ color: C.gray, fontSize: 9 }}>+10% ${target10.toFixed(0)}</span>
+              </div>
+            </div>
+          </div>
+
+          {!rkos?.gameOver && (
+            <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+              <button style={btnStyle("L")} onClick={() => addRkosResult("L")} disabled={loading}>LOW</button>
+              <button style={btnStyle("H")} onClick={() => addRkosResult("H")} disabled={loading}>HIGH</button>
+            </div>
+          )}
+          <button style={{ ...S.btn, background: "#1a3a1a", color: "#44aa44", width: "100%", marginBottom: 8, fontSize: 12, border: "1px solid #2a4a2a" }} onClick={() => addRkosResult("Z")} disabled={loading || !!rkos?.gameOver}>ZERO</button>
+
+          {rkos?.gameOver ? (
+            <button style={{ ...S.btnGold, width: "100%" }} onClick={resetRkosGame} disabled={loading}>New Game</button>
+          ) : (
+            <button style={{ ...S.btnGhost, width: "100%", fontSize: 12 }} onClick={finishRkosGame} disabled={loading}>End Game</button>
+          )}
+
+          {(rkos?.history?.length > 0) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 10, justifyContent: "center" }}>
+              {rkos.history.map((r, i) => (
+                <div key={i} style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: "bold", backgroundColor: r === "L" ? "#0d3a2a" : r === "H" ? "#3a2a0d" : "#1a1a2a", color: C.white, border: "1px solid #333" }}>{r}</div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={S.footer}>
+          <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Menu</button>
+        </div>
+      </div>
+    );
   }
 
   // ═══ KING OF STAND — BANKROLL ════════════════════════════════════════════
