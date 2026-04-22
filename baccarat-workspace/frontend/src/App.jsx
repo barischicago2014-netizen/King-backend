@@ -311,7 +311,9 @@ export default function App() {
       setLoading(false);
       setKosLastResult(result);
       if (res.data.sessionId) setKosSessionId(res.data.sessionId);
-      setKos((prev) => ({ ...prev, ...res.data }));
+      const newData = { ...res.data };
+      if (res.data.balance >= (res.data.bankroll ?? 100) * 1.10) newData.dailyGameOver = true;
+      setKos((prev) => ({ ...prev, ...newData }));
       if (res.data.win === true) showFlash("WIN!", C.green);
       else if (res.data.win === false) showFlash("LOSS", C.red);
     } catch (err) {
@@ -361,7 +363,9 @@ export default function App() {
       const res = await api.post("/rkos/result", { result, sessionId: rkosSessionId });
       rkosInFlight.current = false; setLoading(false);
       if (res.data.sessionId) setRkosSessionId(res.data.sessionId);
-      setRkos((prev) => ({ ...prev, ...res.data }));
+      const newRData = { ...res.data };
+      if (res.data.balance >= (res.data.bankroll ?? 100) * 1.10) newRData.dailyGameOver = true;
+      setRkos((prev) => ({ ...prev, ...newRData }));
       if (res.data.win === true) showFlash("WIN!", C.green);
       else if (res.data.win === false) showFlash("LOSS", C.red);
     } catch (err) {
@@ -870,16 +874,17 @@ export default function App() {
     const balance = rkos?.balance ?? rkos?.bankroll ?? 100;
     const bankroll = rkos?.bankroll ?? 100;
     const target10 = bankroll * 1.10;
-    const progress = Math.min(100, Math.max(0, ((balance - bankroll) / (target10 - bankroll)) * 100));
     const pnl = balance - bankroll;
+    const progress = Math.min(100, Math.max(0, ((balance - bankroll) / (target10 - bankroll)) * 100));
+    const totalHands = (sc.L || 0) + (sc.H || 0) + (sc.Z || 0);
+    const wins = rkos?.handLog ? rkos.handLog.filter(h => h.win).length : 0;
+    const dailyTarget = rkos?.dailyGameOver;
 
     const btnStyle = (side) => ({
-      flex: 1, height: 80, fontSize: 24, fontWeight: "bold",
+      flex: 1, height: 86, fontSize: 24, fontWeight: "bold",
       backgroundColor: side === "L" ? (rkos?.side === side ? "#0d3a2a" : "#071a14") : (rkos?.side === side ? "#2a1a0d" : "#140d07"),
-      color: C.white,
-      border: rkos?.side === side ? "2px solid #44bbaa" : "2px solid #333",
-      borderRadius: 12, cursor: "pointer",
-      WebkitTapHighlightColor: "transparent", touchAction: "manipulation", letterSpacing: 2,
+      color: C.white, border: rkos?.side === side ? "2px solid #44bbaa" : "2px solid #333",
+      borderRadius: 12, cursor: "pointer", WebkitTapHighlightColor: "transparent", touchAction: "manipulation", letterSpacing: 2,
     });
 
     return (
@@ -890,9 +895,9 @@ export default function App() {
             <div style={{ color: "#44bbaa", fontWeight: "bold", fontSize: 20 }}>{balance.toFixed(2)}</div>
             <div style={{ color: pnl >= 0 ? C.green : C.red, fontSize: 11 }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}</div>
           </div>
-          <div style={{ textAlign: "right", fontSize: 10, color: C.gray }}>
-            <div>unit: ${rkos?.baseUnit?.toFixed(2)}</div>
-            <div style={{ color: stepIdx > 5 ? C.red : C.gray }}>Step {stepIdx + 1}/10</div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: C.gray }}>Target: <span style={{ color: C.gold }}>${target10.toFixed(2)}</span></div>
+            <div style={{ fontSize: 10, color: progress >= 100 ? C.green : C.gray }}>{progress.toFixed(0)}% of +10%</div>
           </div>
         </div>
 
@@ -908,7 +913,9 @@ export default function App() {
 
           <div style={{ backgroundColor: C.card, borderRadius: 12, padding: "12px 16px", marginBottom: 10, border: "1px solid #222" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              {phase === "waiting" ? (
+              {dailyTarget ? (
+                <div style={{ color: C.green, fontSize: 16, fontWeight: "bold", width: "100%", textAlign: "center" }}>Daily Target Complete! +10%</div>
+              ) : phase === "waiting" ? (
                 <div style={{ color: C.gray, fontSize: 13 }}>Enter scoreboard leader (L or H)</div>
               ) : phase === "observation" ? (
                 <div style={{ color: "#ffaa44", fontSize: 13, fontWeight: "bold" }}>{rkos?.message}</div>
@@ -923,48 +930,34 @@ export default function App() {
                     <div style={{ color: "#44bbaa", fontSize: 20, fontWeight: "bold", lineHeight: 1 }}>{rkos?.side === "L" ? "LOW" : rkos?.side === "H" ? "HIGH" : "—"}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ color: C.gray, fontSize: 10 }}>Step {stepIdx + 1} · {KOS_SEQ[stepIdx]}u</div>
-                    <div style={{ color: C.gold, fontSize: 18, fontWeight: "bold" }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
+                    <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
                   </div>
                 </>
               )}
             </div>
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ color: C.gray, fontSize: 10 }}>Loss sequence</span>
-                <span style={{ color: C.gray, fontSize: 10 }}>{KOS_SEQ.join(" · ")}</span>
-              </div>
-              <div style={{ display: "flex", gap: 3 }}>
-                {KOS_SEQ.map((u, i) => (
-                  <div key={i} style={{ flex: u, height: 6, borderRadius: 3, backgroundColor: i < stepIdx ? "#c0392b" : i === stepIdx && phase === "active" ? "#44bbaa" : "#2a2a3a" }} />
-                ))}
-              </div>
+
+            <div style={{ height: 10, backgroundColor: "#1a1a2a", borderRadius: 5, overflow: "hidden", marginBottom: 6 }}>
+              <div style={{ height: "100%", borderRadius: 5, width: `${Math.max(0, progress)}%`, backgroundColor: progress >= 100 ? C.green : progress >= 60 ? C.gold : "#44bbaa", transition: "width 0.4s ease" }} />
             </div>
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ color: C.gray, fontSize: 10 }}>Daily target +10%</span>
-                <span style={{ color: progress >= 100 ? C.green : C.gold, fontSize: 10, fontWeight: "bold" }}>{progress.toFixed(0)}%</span>
-              </div>
-              <div style={{ height: 8, backgroundColor: "#1a1a2a", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{ height: "100%", borderRadius: 4, width: `${Math.max(0, progress)}%`, backgroundColor: progress >= 100 ? C.green : progress >= 60 ? C.gold : "#44bbaa", transition: "width 0.4s ease" }} />
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                <span style={{ color: C.gray, fontSize: 9 }}>${bankroll.toFixed(0)}</span>
-                <span style={{ color: C.gray, fontSize: 9 }}>+10% ${target10.toFixed(0)}</span>
-              </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+              <span style={{ color: C.green }}>W: {wins}</span>
+              <span style={{ color: C.gray }}>Tables: {Math.ceil(totalHands / 2) || 0}</span>
+              <span style={{ color: C.red }}>L: {totalHands - wins}</span>
             </div>
           </div>
 
-          {!rkos?.gameOver && (
+          {!rkos?.gameOver && !dailyTarget && (
             <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
               <button style={btnStyle("L")} onClick={() => addRkosResult("L")} disabled={loading}>LOW</button>
               <button style={btnStyle("H")} onClick={() => addRkosResult("H")} disabled={loading}>HIGH</button>
             </div>
           )}
-          <button style={{ ...S.btn, background: "#1a3a1a", color: "#44aa44", width: "100%", marginBottom: 8, fontSize: 12, border: "1px solid #2a4a2a" }} onClick={() => addRkosResult("Z")} disabled={loading || !!rkos?.gameOver}>ZERO</button>
+          {!rkos?.gameOver && !dailyTarget && (
+            <button style={{ ...S.btn, background: "#1a3a1a", color: "#44aa44", width: "100%", marginBottom: 8, fontSize: 12, border: "1px solid #2a4a2a" }} onClick={() => addRkosResult("Z")} disabled={loading}>ZERO</button>
+          )}
 
-          {rkos?.gameOver ? (
-            <button style={{ ...S.btnGold, width: "100%" }} onClick={resetRkosGame} disabled={loading}>New Game</button>
+          {(rkos?.gameOver || dailyTarget) ? (
+            <button style={{ ...S.btnGold, width: "100%", marginBottom: 8 }} onClick={resetRkosGame} disabled={loading}>New Game</button>
           ) : (
             <button style={{ ...S.btnGhost, width: "100%", fontSize: 12 }} onClick={finishRkosGame} disabled={loading}>End Game</button>
           )}
@@ -1013,22 +1006,20 @@ export default function App() {
     const KOS_SEQ = [1, 2, 3, 5, 3, 2, 1, 2, 3, 5];
     const stepIdx = kos?.lossStep ?? 0;
     const betAmt = kos?.actualBet ?? (KOS_SEQ[stepIdx] * (kos?.baseUnit ?? 1));
-
-    // %10 target progress
     const balance = kos?.balance ?? kos?.bankroll ?? 100;
     const bankroll = kos?.bankroll ?? 100;
     const target10 = bankroll * 1.10;
-    const progress = Math.min(100, Math.max(0, ((balance - bankroll) / (target10 - bankroll)) * 100));
     const pnl = balance - bankroll;
+    const progress = Math.min(100, Math.max(0, ((balance - bankroll) / (target10 - bankroll)) * 100));
+    const totalHands = (sc.B || 0) + (sc.P || 0);
+    const wins = kos?.handLog ? kos.handLog.filter(h => h.win).length : 0;
+    const dailyTarget = kos?.dailyGameOver;
 
     const btnStyle = (side) => ({
-      flex: 1, height: 80, fontSize: 28, fontWeight: "bold",
+      flex: 1, height: 86, fontSize: 26, fontWeight: "bold",
       backgroundColor: side === "B" ? (kos?.side === side ? "#1a4a9a" : "#0d2050") : (kos?.side === side ? "#7a1a1a" : "#3a0d0d"),
-      color: C.white,
-      border: kos?.side === side ? "2px solid #4488ff" : "2px solid #333",
-      borderRadius: 12, cursor: "pointer",
-      WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
-      letterSpacing: 2,
+      color: C.white, border: kos?.side === side ? "2px solid #4488ff" : "2px solid #333",
+      borderRadius: 12, cursor: "pointer", WebkitTapHighlightColor: "transparent", touchAction: "manipulation", letterSpacing: 2,
     });
 
     return (
@@ -1039,9 +1030,9 @@ export default function App() {
             <div style={{ color: "#4488ff", fontWeight: "bold", fontSize: 20 }}>{balance.toFixed(2)}</div>
             <div style={{ color: pnl >= 0 ? C.green : C.red, fontSize: 11 }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}</div>
           </div>
-          <div style={{ textAlign: "right", fontSize: 10, color: C.gray }}>
-            <div>unit: ${kos?.baseUnit?.toFixed(2)}</div>
-            <div style={{ color: stepIdx > 5 ? C.red : C.gray }}>Step {stepIdx + 1}/10</div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: C.gray }}>Target: <span style={{ color: C.gold }}>${target10.toFixed(2)}</span></div>
+            <div style={{ fontSize: 10, color: progress >= 100 ? C.green : C.gray }}>{progress.toFixed(0)}% of +10%</div>
           </div>
         </div>
 
@@ -1056,11 +1047,12 @@ export default function App() {
             ))}
           </div>
 
-          {/* Compact status + progress */}
+          {/* Status card */}
           <div style={{ backgroundColor: C.card, borderRadius: 12, padding: "12px 16px", marginBottom: 10, border: "1px solid #222" }}>
-            {/* Top row: bet info */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              {phase === "waiting" ? (
+              {dailyTarget ? (
+                <div style={{ color: C.green, fontSize: 16, fontWeight: "bold", width: "100%", textAlign: "center" }}>Daily Target Complete! +10%</div>
+              ) : phase === "waiting" ? (
                 <div style={{ color: C.gray, fontSize: 13 }}>Enter scoreboard leader</div>
               ) : phase === "observation" ? (
                 <div style={{ color: "#ffaa44", fontSize: 13, fontWeight: "bold" }}>{kos?.message}</div>
@@ -1075,61 +1067,38 @@ export default function App() {
                     <div style={{ color: "#4488ff", fontSize: 20, fontWeight: "bold", lineHeight: 1 }}>{kos?.side === "B" ? "BANKER" : kos?.side === "P" ? "PLAYER" : "—"}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ color: C.gray, fontSize: 10 }}>Step {stepIdx + 1} · {KOS_SEQ[stepIdx]}u</div>
-                    <div style={{ color: C.gold, fontSize: 18, fontWeight: "bold" }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
+                    <div style={{ color: C.gold, fontSize: 20, fontWeight: "bold" }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
                   </div>
                 </>
               )}
             </div>
 
-            {/* Step progress bar (kayip sirasi) */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ color: C.gray, fontSize: 10 }}>Loss sequence</span>
-                <span style={{ color: C.gray, fontSize: 10 }}>{KOS_SEQ.join(" · ")}</span>
-              </div>
-              <div style={{ display: "flex", gap: 3 }}>
-                {KOS_SEQ.map((u, i) => (
-                  <div key={i} style={{
-                    flex: u, height: 6, borderRadius: 3,
-                    backgroundColor: i < stepIdx ? "#c0392b" : i === stepIdx && phase === "active" ? "#4488ff" : "#2a2a3a",
-                  }} />
-                ))}
-              </div>
+            {/* %10 progress bar */}
+            <div style={{ height: 10, backgroundColor: "#1a1a2a", borderRadius: 5, overflow: "hidden", marginBottom: 6 }}>
+              <div style={{ height: "100%", borderRadius: 5, width: `${Math.max(0, progress)}%`, backgroundColor: progress >= 100 ? C.green : progress >= 60 ? C.gold : "#4488ff", transition: "width 0.4s ease" }} />
             </div>
 
-            {/* %10 target progress bar */}
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ color: C.gray, fontSize: 10 }}>Daily target +10%</span>
-                <span style={{ color: progress >= 100 ? C.green : C.gold, fontSize: 10, fontWeight: "bold" }}>{progress.toFixed(0)}%</span>
-              </div>
-              <div style={{ height: 8, backgroundColor: "#1a1a2a", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 4,
-                  width: `${Math.max(0, progress)}%`,
-                  backgroundColor: progress >= 100 ? C.green : progress >= 60 ? C.gold : "#4488ff",
-                  transition: "width 0.4s ease",
-                }} />
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                <span style={{ color: C.gray, fontSize: 9 }}>${bankroll.toFixed(0)}</span>
-                <span style={{ color: C.gray, fontSize: 9 }}>+10% ${target10.toFixed(0)}</span>
-              </div>
+            {/* Win/Loss ratio */}
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+              <span style={{ color: C.green }}>W: {wins}</span>
+              <span style={{ color: C.gray }}>Tables: {sc.B + sc.P > 0 ? Math.ceil((sc.B+sc.P)/2) : 0}</span>
+              <span style={{ color: C.red }}>L: {totalHands - wins}</span>
             </div>
           </div>
 
           {/* B / P buttons */}
-          {!kos?.gameOver && (
+          {!kos?.gameOver && !dailyTarget && (
             <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
               <button style={btnStyle("B")} onClick={() => addKosResult("B")} disabled={loading}>BANKER</button>
               <button style={btnStyle("P")} onClick={() => addKosResult("P")} disabled={loading}>PLAYER</button>
             </div>
           )}
-          <button style={{ ...S.btn, background: "#222", color: "#555", width: "100%", marginBottom: 8, fontSize: 12, border: "1px solid #333" }} onClick={() => addKosResult("T")} disabled={loading || !!kos?.gameOver}>TIE</button>
+          {!kos?.gameOver && !dailyTarget && (
+            <button style={{ ...S.btn, background: "#222", color: "#555", width: "100%", marginBottom: 8, fontSize: 12, border: "1px solid #333" }} onClick={() => addKosResult("T")} disabled={loading}>TIE</button>
+          )}
 
-          {kos?.gameOver ? (
-            <button style={{ ...S.btnGold, width: "100%" }} onClick={resetKosGame} disabled={loading}>New Game</button>
+          {(kos?.gameOver || dailyTarget) ? (
+            <button style={{ ...S.btnGold, width: "100%", marginBottom: 8 }} onClick={resetKosGame} disabled={loading}>New Game</button>
           ) : (
             <button style={{ ...S.btnGhost, width: "100%", fontSize: 12 }} onClick={finishKosGame} disabled={loading}>End Game</button>
           )}
