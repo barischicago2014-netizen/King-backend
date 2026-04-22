@@ -522,8 +522,26 @@ export default function App() {
     return (
       <div style={S.page}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
-            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 24, fontSize: 22 }}>Sign In</h2>
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 340 }}>
+            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 20, fontSize: 22 }}>Sign In</h2>
+
+            {/* Disclaimer box */}
+            <div style={{ backgroundColor: "#0a1a0f", border: "1px solid #2a4a30", borderRadius: 8, padding: "12px 14px", marginBottom: 16, maxHeight: 160, overflowY: "auto" }}>
+              <div style={{ color: "#ffaa44", fontSize: 11, fontWeight: "bold", marginBottom: 6, letterSpacing: 1 }}>⚠ DISCLAIMER & LIABILITY WAIVER</div>
+              <div style={{ color: "#aaa", fontSize: 10.5, lineHeight: 1.65 }}>
+                King Strategy ("the App") is provided solely for <b style={{ color: "#ddd" }}>educational and entertainment purposes</b>. It does not constitute gambling advice, financial advice, or any guarantee of profit or specific outcome.<br /><br />
+                By accessing this App you expressly acknowledge and agree that:<br />
+                <b style={{ color: "#ddd" }}>1. No guarantee.</b> All strategies are informational only. Past results do not guarantee future outcomes. Gambling involves substantial financial risk and you may lose all funds wagered.<br />
+                <b style={{ color: "#ddd" }}>2. Your sole responsibility.</b> You are solely responsible for all gambling decisions, financial losses, and any consequences arising from your use of this App.<br />
+                <b style={{ color: "#ddd" }}>3. Legal compliance.</b> You confirm that gambling is legal in your jurisdiction and that you comply with all applicable local, state, and federal laws.<br />
+                <b style={{ color: "#ddd" }}>4. Age verification.</b> You confirm you are at least 21 years of age (or the legal gambling age in your jurisdiction, whichever is higher).<br />
+                <b style={{ color: "#ddd" }}>5. Full liability waiver.</b> To the fullest extent permitted by law, you hereby waive any and all claims, demands, and causes of action against King Strategy, its owners, operators, employees, and affiliates for any losses, damages, financial harm, gambling addiction, psychological harm, emotional distress, or any other injury of any kind arising from or related to your use of this App.<br />
+                <b style={{ color: "#ddd" }}>6. No lawsuit.</b> You agree not to initiate or participate in any legal action, lawsuit, arbitration, or class action against King Strategy or its associated persons for any reason related to your use of this App.<br />
+                <b style={{ color: "#ddd" }}>7. Indemnification.</b> You agree to indemnify and hold harmless King Strategy and its owners from any third-party claims arising from your use of the App or your violation of these terms.<br />
+                <b style={{ color: "#ddd" }}>8. Problem gambling.</b> If you believe you may have a gambling problem, please seek help at <span style={{ color: C.gold }}>ncpgambling.org</span> or call 1-800-522-4700 before using this App.
+              </div>
+            </div>
+
             <input style={{ ...S.input, marginBottom: 12 }} placeholder="Username" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="username" />
             <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleLogin()} autoComplete="current-password" />
             <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14, cursor: "pointer" }} onClick={() => setTermsAccepted(t => !t)}>
@@ -531,9 +549,9 @@ export default function App() {
                 {termsAccepted && <span style={{ color: "#000", fontSize: 13, fontWeight: "bold" }}>✓</span>}
               </div>
               <span style={{ color: C.gray, fontSize: 12, lineHeight: 1.5 }}>
-                I have read and agree to the{" "}
-                <a href="/terms.pdf" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }} onClick={e => e.stopPropagation()}>Terms of Use</a>.
-                {" "}I confirm I am 21+ and online gambling is legal in my jurisdiction.
+                I have read, understood, and agree to the full{" "}
+                <a href="/terms.pdf" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }} onClick={e => e.stopPropagation()}>Terms of Use</a>
+                {" "}and Disclaimer above. I confirm I am 21+, gambling is legal in my jurisdiction, and I waive all liability claims against King Strategy.
               </span>
             </div>
             {formError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
@@ -551,8 +569,26 @@ export default function App() {
     return (
       <div style={S.page}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
-            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 24, fontSize: 22 }}>Create Account</h2>
+          <div style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, padding: 32, borderRadius: 14, width: "100%", maxWidth: 340 }}>
+            <h2 style={{ color: C.gold, textAlign: "center", marginBottom: 20, fontSize: 22 }}>Create Account</h2>
+
+            {/* Disclaimer box */}
+            <div style={{ backgroundColor: "#0a1a0f", border: "1px solid #2a4a30", borderRadius: 8, padding: "12px 14px", marginBottom: 16, maxHeight: 160, overflowY: "auto" }}>
+              <div style={{ color: "#ffaa44", fontSize: 11, fontWeight: "bold", marginBottom: 6, letterSpacing: 1 }}>⚠ DISCLAIMER & LIABILITY WAIVER</div>
+              <div style={{ color: "#aaa", fontSize: 10.5, lineHeight: 1.65 }}>
+                King Strategy ("the App") is provided solely for <b style={{ color: "#ddd" }}>educational and entertainment purposes</b>. It does not constitute gambling advice, financial advice, or any guarantee of profit or specific outcome.<br /><br />
+                By creating an account you expressly acknowledge and agree that:<br />
+                <b style={{ color: "#ddd" }}>1. No guarantee.</b> All strategies are informational only. Past results do not guarantee future outcomes. Gambling involves substantial financial risk and you may lose all funds wagered.<br />
+                <b style={{ color: "#ddd" }}>2. Your sole responsibility.</b> You are solely responsible for all gambling decisions, financial losses, and any consequences arising from your use of this App.<br />
+                <b style={{ color: "#ddd" }}>3. Legal compliance.</b> You confirm that gambling is legal in your jurisdiction and that you comply with all applicable local, state, and federal laws.<br />
+                <b style={{ color: "#ddd" }}>4. Age verification.</b> You confirm you are at least 21 years of age (or the legal gambling age in your jurisdiction, whichever is higher).<br />
+                <b style={{ color: "#ddd" }}>5. Full liability waiver.</b> To the fullest extent permitted by law, you hereby waive any and all claims, demands, and causes of action against King Strategy, its owners, operators, employees, and affiliates for any losses, damages, financial harm, gambling addiction, psychological harm, emotional distress, or any other injury of any kind arising from or related to your use of this App.<br />
+                <b style={{ color: "#ddd" }}>6. No lawsuit.</b> You agree not to initiate or participate in any legal action, lawsuit, arbitration, or class action against King Strategy or its associated persons for any reason related to your use of this App.<br />
+                <b style={{ color: "#ddd" }}>7. Indemnification.</b> You agree to indemnify and hold harmless King Strategy and its owners from any third-party claims arising from your use of the App or your violation of these terms.<br />
+                <b style={{ color: "#ddd" }}>8. Problem gambling.</b> If you believe you may have a gambling problem, please seek help at <span style={{ color: C.gold }}>ncpgambling.org</span> or call 1-800-522-4700 before using this App.
+              </div>
+            </div>
+
             <input style={{ ...S.input, marginBottom: 12 }} placeholder="Username" value={signupForm.username} onChange={(e) => setSignupForm(f => ({ ...f, username: e.target.value }))} autoComplete="username" />
             <input style={{ ...S.input, marginBottom: 12 }} type="email" placeholder="Email" value={signupForm.email} onChange={(e) => setSignupForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" />
             <input style={{ ...S.input, marginBottom: 16 }} type="password" placeholder="Password (min 6 characters)" value={signupForm.password} onChange={(e) => setSignupForm(f => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && handleSignup()} autoComplete="new-password" />
@@ -561,9 +597,9 @@ export default function App() {
                 {termsAccepted && <span style={{ color: "#000", fontSize: 13, fontWeight: "bold" }}>✓</span>}
               </div>
               <span style={{ color: C.gray, fontSize: 12, lineHeight: 1.5 }}>
-                I have read and agree to the{" "}
-                <a href="/terms.pdf" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }} onClick={e => e.stopPropagation()}>Terms of Use</a>.
-                {" "}I confirm I am 21+ and online gambling is legal in my jurisdiction.
+                I have read, understood, and agree to the full{" "}
+                <a href="/terms.pdf" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }} onClick={e => e.stopPropagation()}>Terms of Use</a>
+                {" "}and Disclaimer above. I confirm I am 21+, gambling is legal in my jurisdiction, and I waive all liability claims against King Strategy.
               </span>
             </div>
             {formError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{formError}</p>}
