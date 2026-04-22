@@ -818,14 +818,23 @@ export default function App() {
     const phase = kos?.phase;
     const KOS_SEQ = [1, 2, 3, 5, 3, 2, 1, 2, 3, 5];
     const stepIdx = kos?.lossStep ?? 0;
-    const currentUnit = kos?.unit ?? (KOS_SEQ[stepIdx] || 1);
-    const betAmt = kos?.actualBet ?? (currentUnit * (kos?.baseUnit ?? 1));
+    const betAmt = kos?.actualBet ?? (KOS_SEQ[stepIdx] * (kos?.baseUnit ?? 1));
+
+    // %10 target progress
+    const balance = kos?.balance ?? kos?.bankroll ?? 100;
+    const bankroll = kos?.bankroll ?? 100;
+    const target10 = bankroll * 1.10;
+    const progress = Math.min(100, Math.max(0, ((balance - bankroll) / (target10 - bankroll)) * 100));
+    const pnl = balance - bankroll;
 
     const btnStyle = (side) => ({
-      flex: 1, height: 90, fontSize: 22, fontWeight: "bold",
-      backgroundColor: side === "B" ? "#1a3a6a" : "#3a1a1a",
-      color: C.white, border: kos?.side === side ? "3px solid #4488ff" : "3px solid transparent",
-      borderRadius: 14, cursor: "pointer", WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
+      flex: 1, height: 80, fontSize: 28, fontWeight: "bold",
+      backgroundColor: side === "B" ? (kos?.side === side ? "#1a4a9a" : "#0d2050") : (kos?.side === side ? "#7a1a1a" : "#3a0d0d"),
+      color: C.white,
+      border: kos?.side === side ? "2px solid #4488ff" : "2px solid #333",
+      borderRadius: 12, cursor: "pointer",
+      WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
+      letterSpacing: 2,
     });
 
     return (
@@ -833,12 +842,12 @@ export default function App() {
         <div style={S.header}>
           <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
           <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#4488ff", fontWeight: "bold", fontSize: 20 }}>{kos?.balance?.toFixed(2) ?? "—"}</div>
-            <div style={{ color: C.gray, fontSize: 11 }}>unit: ${kos?.baseUnit?.toFixed(2)}</div>
+            <div style={{ color: "#4488ff", fontWeight: "bold", fontSize: 20 }}>{balance.toFixed(2)}</div>
+            <div style={{ color: pnl >= 0 ? C.green : C.red, fontSize: 11 }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}</div>
           </div>
           <div style={{ textAlign: "right", fontSize: 10, color: C.gray }}>
-            <div>Step: {stepIdx + 1}/10</div>
-            <div>Seq: {KOS_SEQ.join("-")}</div>
+            <div>unit: ${kos?.baseUnit?.toFixed(2)}</div>
+            <div style={{ color: stepIdx > 5 ? C.red : C.gray }}>Step {stepIdx + 1}/10</div>
           </div>
         </div>
 
@@ -847,56 +856,95 @@ export default function App() {
           <div style={S.scoreboard}>
             {[{ l: "BANKER", k: "B", c: "#4488ff" }, { l: "PLAYER", k: "P", c: C.red }, { l: "TIE", k: "T", c: C.green }].map(({ l, k, c }) => (
               <div key={k} style={{ textAlign: "center" }}>
-                <div style={{ color: c, fontSize: 13, fontWeight: "bold" }}>{l}</div>
-                <div style={{ fontSize: 22, fontWeight: "bold" }}>{sc[k]}</div>
+                <div style={{ color: c, fontSize: 12, fontWeight: "bold" }}>{l}</div>
+                <div style={{ fontSize: 20, fontWeight: "bold" }}>{sc[k]}</div>
               </div>
             ))}
           </div>
 
-          {/* Status box */}
-          <div style={S.recBox}>
-            {phase === "waiting" ? (
-              <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>SETUP</div>
-              <div style={{ color: C.gray, fontSize: 16 }}>Enter scoreboard leader (B or P)</div></>
-            ) : phase === "observation" ? (
-              <><div style={{ color: "#ffaa44", fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>OBSERVATION</div>
-              <div style={{ color: "#ffaa44", fontSize: 16 }}>{kos?.message}</div></>
-            ) : kos?.gameOver ? (
-              <><div style={{ color: kos?.win ? C.green : C.red, fontSize: 20, fontWeight: "bold" }}>{kos?.win ? "GAME OVER — WIN" : "GAME OVER — LOSS"}</div>
-              <div style={{ color: C.gray, fontSize: 14, marginTop: 6 }}>PNL: {kos?.pnl >= 0 ? "+" : ""}{kos?.pnl?.toFixed(2)}</div></>
-            ) : (
-              <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>BET ON</div>
-              <div style={{ color: "#4488ff", fontSize: 32, fontWeight: "bold" }}>{kos?.side === "B" ? "BANKER" : "PLAYER"}</div>
-              <div style={{ color: C.gold, fontSize: 20, marginTop: 6 }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
-              <div style={{ color: C.gray, fontSize: 12 }}>Step {stepIdx + 1}: {KOS_SEQ[stepIdx]}u</div></>
-            )}
+          {/* Compact status + progress */}
+          <div style={{ backgroundColor: C.card, borderRadius: 12, padding: "12px 16px", marginBottom: 10, border: "1px solid #222" }}>
+            {/* Top row: bet info */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              {phase === "waiting" ? (
+                <div style={{ color: C.gray, fontSize: 13 }}>Enter scoreboard leader</div>
+              ) : phase === "observation" ? (
+                <div style={{ color: "#ffaa44", fontSize: 13, fontWeight: "bold" }}>{kos?.message}</div>
+              ) : kos?.gameOver ? (
+                <div style={{ color: kos?.win ? C.green : C.red, fontSize: 15, fontWeight: "bold" }}>
+                  {kos?.win ? "WIN ✓" : "LOSS ✗"} &nbsp; PNL: {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <div style={{ color: C.gray, fontSize: 10, letterSpacing: 1 }}>BET ON</div>
+                    <div style={{ color: "#4488ff", fontSize: 20, fontWeight: "bold", lineHeight: 1 }}>{kos?.side === "B" ? "BANKER" : kos?.side === "P" ? "PLAYER" : "—"}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: C.gray, fontSize: 10 }}>Step {stepIdx + 1} · {KOS_SEQ[stepIdx]}u</div>
+                    <div style={{ color: C.gold, fontSize: 18, fontWeight: "bold" }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Step progress bar (kayip sirasi) */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <span style={{ color: C.gray, fontSize: 10 }}>Loss sequence</span>
+                <span style={{ color: C.gray, fontSize: 10 }}>{KOS_SEQ.join(" · ")}</span>
+              </div>
+              <div style={{ display: "flex", gap: 3 }}>
+                {KOS_SEQ.map((u, i) => (
+                  <div key={i} style={{
+                    flex: u, height: 6, borderRadius: 3,
+                    backgroundColor: i < stepIdx ? "#c0392b" : i === stepIdx && phase === "active" ? "#4488ff" : "#2a2a3a",
+                  }} />
+                ))}
+              </div>
+            </div>
+
+            {/* %10 target progress bar */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <span style={{ color: C.gray, fontSize: 10 }}>Daily target +10%</span>
+                <span style={{ color: progress >= 100 ? C.green : C.gold, fontSize: 10, fontWeight: "bold" }}>{progress.toFixed(0)}%</span>
+              </div>
+              <div style={{ height: 8, backgroundColor: "#1a1a2a", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 4,
+                  width: `${Math.max(0, progress)}%`,
+                  backgroundColor: progress >= 100 ? C.green : progress >= 60 ? C.gold : "#4488ff",
+                  transition: "width 0.4s ease",
+                }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                <span style={{ color: C.gray, fontSize: 9 }}>${bankroll.toFixed(0)}</span>
+                <span style={{ color: C.gray, fontSize: 9 }}>+10% ${target10.toFixed(0)}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Message */}
-          {kos?.message && !kos?.gameOver && (
-            <div style={{ textAlign: "center", color: C.gray, fontSize: 13, marginBottom: 8 }}>{kos.message}</div>
-          )}
-
-          {/* Buttons */}
+          {/* B / P buttons */}
           {!kos?.gameOver && (
-            <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-              <button style={btnStyle("B")} onClick={() => addKosResult("B")} disabled={loading}>B</button>
-              <button style={btnStyle("P")} onClick={() => addKosResult("P")} disabled={loading}>P</button>
+            <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+              <button style={btnStyle("B")} onClick={() => addKosResult("B")} disabled={loading}>BANKER</button>
+              <button style={btnStyle("P")} onClick={() => addKosResult("P")} disabled={loading}>PLAYER</button>
             </div>
           )}
-          <button style={{ ...S.btn, background: "#333", color: C.gray, width: "100%", marginBottom: 8, fontSize: 13 }} onClick={() => addKosResult("T")} disabled={loading || !!kos?.gameOver}>TIE</button>
+          <button style={{ ...S.btn, background: "#222", color: "#555", width: "100%", marginBottom: 8, fontSize: 12, border: "1px solid #333" }} onClick={() => addKosResult("T")} disabled={loading || !!kos?.gameOver}>TIE</button>
 
           {kos?.gameOver ? (
             <button style={{ ...S.btnGold, width: "100%" }} onClick={resetKosGame} disabled={loading}>New Game</button>
           ) : (
-            <button style={{ ...S.btnGhost, width: "100%", fontSize: 13 }} onClick={finishKosGame} disabled={loading}>End Game</button>
+            <button style={{ ...S.btnGhost, width: "100%", fontSize: 12 }} onClick={finishKosGame} disabled={loading}>End Game</button>
           )}
 
-          {/* History */}
+          {/* History chips */}
           {(kos?.history?.length > 0) && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 12, justifyContent: "center" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 10, justifyContent: "center" }}>
               {kos.history.map((r, i) => (
-                <div key={i} style={{ width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: "bold", backgroundColor: r === "B" ? "#1a3a6a" : r === "P" ? "#3a1a1a" : "#1a3a2a", color: C.white, border: "1px solid #333" }}>{r}</div>
+                <div key={i} style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: "bold", backgroundColor: r === "B" ? "#1a3a6a" : r === "P" ? "#3a1a1a" : "#1a3a2a", color: C.white, border: "1px solid #333" }}>{r}</div>
               ))}
             </div>
           )}
