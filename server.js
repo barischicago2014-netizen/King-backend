@@ -332,7 +332,7 @@ function processResult(result, s) {
     s.consecutiveLosses++;
     s.lossStep = (s.lossStep || 0) + 1;
     s.currentSuggestion = getLossSequenceSuggestion(s.startSide || "B", s.lossStep);
-    s.currentUnit = 1;
+    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
     return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "LOSS -" + lostUnit + " units", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
