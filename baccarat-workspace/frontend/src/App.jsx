@@ -51,6 +51,11 @@ export default function App() {
   const [rSessionId, setRSessionId] = useState(null);
   const [rLastResult, setRLastResult] = useState(null);
   const rResultInFlight = useRef(false);
+  // King of Stand state
+  const [kos, setKos] = useState(null);
+  const [kosSessionId, setKosSessionId] = useState(null);
+  const [kosLastResult, setKosLastResult] = useState(null);
+  const kosInFlight = useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -76,7 +81,7 @@ export default function App() {
       localStorage.setItem("bac_role", res.data.role || "user");
       setUser({ token: res.data.token, username: res.data.username, role: res.data.role || "user" });
       setForm({ username: "", password: "" });
-      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : "bankroll");
+      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : selectedGame === "kos" ? "kos-bankroll" : "bankroll");
     } catch (err) {
       const code = err.response?.data?.code;
       const username = err.response?.data?.username;
@@ -281,6 +286,61 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+  async function startKos(amount) {
+    setLoading(true);
+    try {
+      const res = await api.post("/kos/start", { bankroll: amount });
+      setKos(res.data);
+      setKosSessionId(res.data.sessionId || null);
+      setKosLastResult(null);
+      setScreen("kos-game");
+    } finally { setLoading(false); }
+  }
+
+  async function addKosResult(result) {
+    if (kosInFlight.current || kos?.gameOver) return;
+    kosInFlight.current = true;
+    setLoading(true);
+    try {
+      const res = await api.post("/kos/result", { result, sessionId: kosSessionId });
+      kosInFlight.current = false;
+      setLoading(false);
+      setKosLastResult(result);
+      if (res.data.sessionId) setKosSessionId(res.data.sessionId);
+      setKos((prev) => ({ ...prev, ...res.data }));
+      if (res.data.win === true) showFlash("WIN!", C.green);
+      else if (res.data.win === false) showFlash("LOSS", C.red);
+    } catch (err) {
+      kosInFlight.current = false;
+      setLoading(false);
+      if (err.response?.status === 404) setScreen("kos-bankroll");
+    }
+  }
+
+  async function finishKosGame() {
+    if (!window.confirm("End this game? A new game will start with your current balance.")) return;
+    setLoading(true);
+    try {
+      const res = await api.post("/kos/finish");
+      const newBankroll = res.data.balance;
+      const startRes = await api.post("/kos/reset", { bankroll: newBankroll });
+      setKos(startRes.data);
+      setKosSessionId(startRes.data.sessionId || null);
+      setKosLastResult(null);
+    } finally { setLoading(false); }
+  }
+
+  async function resetKosGame() {
+    const newBankroll = kos?.balance || kos?.bankroll || 100;
+    setLoading(true);
+    try {
+      const res = await api.post("/kos/reset", { bankroll: newBankroll });
+      setKos(res.data);
+      setKosSessionId(res.data.sessionId || null);
+      setKosLastResult(null);
+    } finally { setLoading(false); }
+  }
+
   async function resetGame() {
     const newBankroll = gs?.balance || gs?.bankroll || 100;
     setLoading(true);
@@ -335,6 +395,7 @@ export default function App() {
           <p style={{ color: C.gray, marginBottom: 48, fontSize: 14 }}>Strategy System</p>
           <button style={{ ...S.btnGold, marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("baccarat"); setScreen("login"); }}>Sign In — Baccarat</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#cc2233", border: "2px solid #cc2233", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("roulette"); setScreen("login"); }}>Sign In — Roulette</button>
+          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#4488ff", border: "2px solid #4488ff", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("kos"); setScreen(user ? "kos-bankroll" : "login"); }}>Sign In — King of Stand</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
           {user?.role === "admin" && (
             <button style={{ padding: "9px 0", width: "100%", maxWidth: 300, fontSize: 13, backgroundColor: "transparent", color: "#888", border: "1px solid #333", borderRadius: 6, cursor: "pointer" }} onClick={() => setScreen("admin")}>Admin Panel</button>
@@ -727,6 +788,124 @@ export default function App() {
 
   if (screen === "admin") {
     return <AdminPanel user={user} onBack={() => setScreen("landing")} />;
+  }
+
+  // ═══ KING OF STAND — BANKROLL ════════════════════════════════════════════
+  if (screen === "kos-bankroll") {
+    const unitPreview = bankrollInput ? `$${(parseFloat(bankrollInput) * 0.01).toFixed(2)}` : null;
+    return (
+      <div style={S.page}><div style={S.content}>
+        <div style={{ backgroundColor: C.card, border: "1px solid #4488ff", padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 36, marginBottom: 4 }}>♠</div>
+            <div style={{ color: C.gray, fontSize: 13, marginBottom: 4 }}>👤 {user?.username}</div>
+            <h2 style={{ color: "#4488ff", fontSize: 22, margin: 0 }}>King of Stand</h2>
+            <p style={{ color: C.gray, fontSize: 12, margin: "8px 0 0" }}>Enter Bankroll</p>
+          </div>
+          <input style={{ ...S.input, marginBottom: 8, fontSize: 22, textAlign: "center" }} type="number" placeholder="0" value={bankrollInput} onChange={(e) => setBankrollInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && startKos(parseFloat(bankrollInput))} autoFocus />
+          {unitPreview && <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>Unit: <span style={{ color: "#4488ff" }}>{unitPreview}</span> (1%)</p>}
+          {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
+          <button style={{ ...S.btnGold, backgroundColor: "#4488ff", color: C.white, marginBottom: 10 }} onClick={() => startKos(parseFloat(bankrollInput))} disabled={loading}>{loading ? "..." : "Start"}</button>
+          <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Sign Out</button>
+        </div>
+      </div></div>
+    );
+  }
+
+  // ═══ KING OF STAND — GAME ════════════════════════════════════════════════
+  if (screen === "kos-game") {
+    const sc = kos?.scoreboard || { B: 0, P: 0, T: 0 };
+    const phase = kos?.phase;
+    const KOS_SEQ = [1, 2, 3, 5, 3, 2, 1, 2, 3, 5];
+    const stepIdx = kos?.lossStep ?? 0;
+    const currentUnit = kos?.unit ?? (KOS_SEQ[stepIdx] || 1);
+    const betAmt = kos?.actualBet ?? (currentUnit * (kos?.baseUnit ?? 1));
+
+    const btnStyle = (side) => ({
+      flex: 1, height: 90, fontSize: 22, fontWeight: "bold",
+      backgroundColor: side === "B" ? "#1a3a6a" : "#3a1a1a",
+      color: C.white, border: kos?.side === side ? "3px solid #4488ff" : "3px solid transparent",
+      borderRadius: 14, cursor: "pointer", WebkitTapHighlightColor: "transparent", touchAction: "manipulation",
+    });
+
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#4488ff", fontWeight: "bold", fontSize: 20 }}>{kos?.balance?.toFixed(2) ?? "—"}</div>
+            <div style={{ color: C.gray, fontSize: 11 }}>unit: ${kos?.baseUnit?.toFixed(2)}</div>
+          </div>
+          <div style={{ textAlign: "right", fontSize: 10, color: C.gray }}>
+            <div>Step: {stepIdx + 1}/10</div>
+            <div>Seq: {KOS_SEQ.join("-")}</div>
+          </div>
+        </div>
+
+        <div style={S.content}>
+          {/* Scoreboard */}
+          <div style={S.scoreboard}>
+            {[{ l: "BANKER", k: "B", c: "#4488ff" }, { l: "PLAYER", k: "P", c: C.red }, { l: "TIE", k: "T", c: C.green }].map(({ l, k, c }) => (
+              <div key={k} style={{ textAlign: "center" }}>
+                <div style={{ color: c, fontSize: 13, fontWeight: "bold" }}>{l}</div>
+                <div style={{ fontSize: 22, fontWeight: "bold" }}>{sc[k]}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Status box */}
+          <div style={S.recBox}>
+            {phase === "waiting" ? (
+              <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>SETUP</div>
+              <div style={{ color: C.gray, fontSize: 16 }}>Enter scoreboard leader (B or P)</div></>
+            ) : phase === "observation" ? (
+              <><div style={{ color: "#ffaa44", fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>OBSERVATION</div>
+              <div style={{ color: "#ffaa44", fontSize: 16 }}>{kos?.message}</div></>
+            ) : kos?.gameOver ? (
+              <><div style={{ color: kos?.win ? C.green : C.red, fontSize: 20, fontWeight: "bold" }}>{kos?.win ? "GAME OVER — WIN" : "GAME OVER — LOSS"}</div>
+              <div style={{ color: C.gray, fontSize: 14, marginTop: 6 }}>PNL: {kos?.pnl >= 0 ? "+" : ""}{kos?.pnl?.toFixed(2)}</div></>
+            ) : (
+              <><div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>BET ON</div>
+              <div style={{ color: "#4488ff", fontSize: 32, fontWeight: "bold" }}>{kos?.side === "B" ? "BANKER" : "PLAYER"}</div>
+              <div style={{ color: C.gold, fontSize: 20, marginTop: 6 }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
+              <div style={{ color: C.gray, fontSize: 12 }}>Step {stepIdx + 1}: {KOS_SEQ[stepIdx]}u</div></>
+            )}
+          </div>
+
+          {/* Message */}
+          {kos?.message && !kos?.gameOver && (
+            <div style={{ textAlign: "center", color: C.gray, fontSize: 13, marginBottom: 8 }}>{kos.message}</div>
+          )}
+
+          {/* Buttons */}
+          {!kos?.gameOver && (
+            <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+              <button style={btnStyle("B")} onClick={() => addKosResult("B")} disabled={loading}>B</button>
+              <button style={btnStyle("P")} onClick={() => addKosResult("P")} disabled={loading}>P</button>
+            </div>
+          )}
+          <button style={{ ...S.btn, background: "#333", color: C.gray, width: "100%", marginBottom: 8, fontSize: 13 }} onClick={() => addKosResult("T")} disabled={loading || !!kos?.gameOver}>TIE</button>
+
+          {kos?.gameOver ? (
+            <button style={{ ...S.btnGold, width: "100%" }} onClick={resetKosGame} disabled={loading}>New Game</button>
+          ) : (
+            <button style={{ ...S.btnGhost, width: "100%", fontSize: 13 }} onClick={finishKosGame} disabled={loading}>End Game</button>
+          )}
+
+          {/* History */}
+          {(kos?.history?.length > 0) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 12, justifyContent: "center" }}>
+              {kos.history.map((r, i) => (
+                <div key={i} style={{ width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: "bold", backgroundColor: r === "B" ? "#1a3a6a" : r === "P" ? "#3a1a1a" : "#1a3a2a", color: C.white, border: "1px solid #333" }}>{r}</div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={S.footer}>
+          <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Menu</button>
+        </div>
+      </div>
+    );
   }
 
   return null;
