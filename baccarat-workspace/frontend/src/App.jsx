@@ -60,6 +60,13 @@ export default function App() {
   const [rkos, setRkos] = useState(null);
   const [rkosSessionId, setRkosSessionId] = useState(null);
   const rkosInFlight = useRef(false);
+  // Blackjack state
+  const [bj, setBj] = useState(null);
+  const [bjSessionId, setBjSessionId] = useState(null);
+  const [bjDealer, setBjDealer] = useState(null);   // dealer upcard
+  const [bjHandType, setBjHandType] = useState("hard"); // hard|soft|pair
+  const [bjTotal, setBjTotal] = useState(null);      // player total
+  const bjInFlight = useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -85,7 +92,7 @@ export default function App() {
       localStorage.setItem("bac_role", res.data.role || "user");
       setUser({ token: res.data.token, username: res.data.username, role: res.data.role || "user" });
       setForm({ username: "", password: "" });
-      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : selectedGame === "kos" ? "kos-bankroll" : selectedGame === "rkos" ? "rkos-bankroll" : "bankroll");
+      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : selectedGame === "kos" ? "kos-bankroll" : selectedGame === "rkos" ? "rkos-bankroll" : selectedGame === "bj" ? "bj-bankroll" : "bankroll");
     } catch (err) {
       const code = err.response?.data?.code;
       const username = err.response?.data?.username;
@@ -393,6 +400,57 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+  async function startBj(amount) {
+    setLoading(true);
+    try {
+      const res = await api.post("/bj/start", { bankroll: amount });
+      setBj(res.data); setBjSessionId(res.data.sessionId || null);
+      setBjDealer(null); setBjHandType("hard"); setBjTotal(null);
+      setScreen("bj-game");
+    } finally { setLoading(false); }
+  }
+
+  async function addBjResult(result) {
+    if (bjInFlight.current || bj?.gameOver) return;
+    bjInFlight.current = true; setLoading(true);
+    try {
+      const res = await api.post("/bj/result", { result, sessionId: bjSessionId });
+      bjInFlight.current = false; setLoading(false);
+      if (res.data.sessionId) setBjSessionId(res.data.sessionId);
+      const newData = { ...res.data };
+      if (res.data.balance >= (res.data.bankroll ?? 100) * 1.10) newData.dailyGameOver = true;
+      setBj((prev) => ({ ...prev, ...newData }));
+      setBjDealer(null); setBjHandType("hard"); setBjTotal(null);
+      if (result === "W") showFlash("WIN!", C.green);
+      else if (result === "L") showFlash("LOSS", C.red);
+      else showFlash("PUSH", C.gray);
+    } catch (err) {
+      bjInFlight.current = false; setLoading(false);
+      if (err.response?.status === 404) setScreen("bj-bankroll");
+    }
+  }
+
+  async function finishBjGame() {
+    if (!window.confirm("End this game? A new game will start with your current balance.")) return;
+    setLoading(true);
+    try {
+      const res = await api.post("/bj/finish");
+      const startRes = await api.post("/bj/reset", { bankroll: res.data.balance });
+      setBj(startRes.data); setBjSessionId(startRes.data.sessionId || null);
+      setBjDealer(null); setBjHandType("hard"); setBjTotal(null);
+    } finally { setLoading(false); }
+  }
+
+  async function resetBjGame() {
+    const newBankroll = bj?.balance || bj?.bankroll || 100;
+    setLoading(true);
+    try {
+      const res = await api.post("/bj/reset", { bankroll: newBankroll });
+      setBj(res.data); setBjSessionId(res.data.sessionId || null);
+      setBjDealer(null); setBjHandType("hard"); setBjTotal(null);
+    } finally { setLoading(false); }
+  }
+
   async function resetGame() {
     const newBankroll = gs?.balance || gs?.bankroll || 100;
     setLoading(true);
@@ -449,6 +507,7 @@ export default function App() {
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#cc2233", border: "2px solid #cc2233", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("roulette"); setScreen("login"); }}>Sign In — Roulette</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#4488ff", border: "2px solid #4488ff", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("kos"); setScreen(user ? "kos-bankroll" : "login"); }}>Sign In — King of Stand</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#44bbaa", border: "2px solid #44bbaa", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("rkos"); setScreen(user ? "rkos-bankroll" : "login"); }}>Sign In — Roulette Stand</button>
+          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#ff9900", border: "2px solid #ff9900", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("bj"); setScreen(user ? "bj-bankroll" : "login"); }}>Sign In — Blackjack Stand</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
           {user?.role === "admin" && (
             <button style={{ padding: "9px 0", width: "100%", maxWidth: 300, fontSize: 13, backgroundColor: "transparent", color: "#888", border: "1px solid #333", borderRadius: 6, cursor: "pointer" }} onClick={() => setScreen("admin")}>Admin Panel</button>
@@ -1115,6 +1174,218 @@ export default function App() {
         <div style={S.footer}>
           <button style={S.btnGhost} onClick={() => setScreen("landing")}>← Menu</button>
         </div>
+      </div>
+    );
+  }
+
+  // ═══ BLACKJACK STAND — BANKROLL ═════════════════════════════════════════
+  if (screen === "bj-bankroll") {
+    const unitPreview = bankrollInput ? `$${(parseFloat(bankrollInput) * 0.01).toFixed(2)}` : null;
+    return (
+      <div style={S.page}><div style={S.content}>
+        <div style={{ backgroundColor: C.card, border: "1px solid #ff9900", padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 36, marginBottom: 4 }}>🃏</div>
+            <div style={{ color: C.gray, fontSize: 13, marginBottom: 4 }}>👤 {user?.username}</div>
+            <h2 style={{ color: "#ff9900", fontSize: 22, margin: 0 }}>Blackjack Stand</h2>
+            <p style={{ color: C.gray, fontSize: 12, margin: "8px 0 0" }}>Enter Bankroll</p>
+          </div>
+          <input style={{ ...S.input, marginBottom: 8, fontSize: 22, textAlign: "center" }} type="number" placeholder="0" value={bankrollInput} onChange={(e) => setBankrollInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && startBj(parseFloat(bankrollInput))} autoFocus />
+          {unitPreview && <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>Unit: <span style={{ color: "#ff9900" }}>{unitPreview}</span> (1%)</p>}
+          <button style={{ ...S.btnGold, backgroundColor: "#ff9900", color: "#000", marginBottom: 10 }} onClick={() => startBj(parseFloat(bankrollInput))} disabled={loading}>{loading ? "..." : "Start"}</button>
+          <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={handleLogout}>Sign Out</button>
+        </div>
+      </div></div>
+    );
+  }
+
+  // ═══ BLACKJACK STAND — GAME ══════════════════════════════════════════════
+  if (screen === "bj-game") {
+    const DEALER_OPTS = ["2","3","4","5","6","7","8","9","10","A"];
+    // Basic strategy table: dealer index 0=2 .. 9=A
+    // H=Hit S=Stand D=Double(else hit) Ds=Double(else stand) P=Split
+    const HARD = {
+      5: "HHHHHHHHHH", 6: "HHHHHHHHHH", 7: "HHHHHHHHHH", 8: "HHHHHHHHHH",
+      9: "HDDDDHHHHH", 10: "DDDDDDDDHHH".slice(0,10), 11: "DDDDDDDDDH",
+      12: "HHSSSHHHHHH".slice(0,10), 13: "SSSSSHHHHH", 14: "SSSSSHHHHH",
+      15: "SSSSSHHHHH", 16: "SSSSSHHHHH",
+      17: "SSSSSSSSSS", 18: "SSSSSSSSSS", 19: "SSSSSSSSSS", 20: "SSSSSSSSSS", 21: "SSSSSSSSSS",
+    };
+    // Soft totals: key = player's non-ace card (2=soft13 .. 9=soft20)
+    const SOFT = {
+      13: "HHHDDHHHHH", 14: "HHHDDHHHHH", 15: "HHDDDHHHHHH".slice(0,10),
+      16: "HHDDDHHHHHH".slice(0,10), 17: "HDDDDHHHHH", 18: "SdddDSSHHH",
+      19: "SSSSSSSSSS", 20: "SSSSSSSSSS",
+    };
+    // Pairs: key = card value
+    const PAIR = {
+      2: "PPPPPPHHHH", 3: "PPPPPPHHHH", 4: "HHHPPHHHHH",
+      5: "DDDDDDDDHH", 6: "PPPPPHHHHH", 7: "PPPPPPHHHHH".slice(0,10),
+      8: "PPPPPPPPPP", 9: "PPPPPSPPSSS".slice(0,10), 10: "SSSSSSSSSS", 1: "PPPPPPPPPP",
+    };
+    const PAIR_LABELS = ["2s","3s","4s","5s","6s","7s","8s","9s","10s","As"];
+    const PAIR_VALS =   [2,   3,   4,   5,   6,   7,   8,   9,   10,   1];
+
+    const dealerIdx = bjDealer !== null ? DEALER_OPTS.indexOf(bjDealer) : -1;
+
+    function getStrategy() {
+      if (dealerIdx < 0 || bjTotal === null) return null;
+      let code;
+      if (bjHandType === "hard") code = (HARD[bjTotal] || "HHHHHHHHHH")[dealerIdx];
+      else if (bjHandType === "soft") code = (SOFT[bjTotal] || "HHHHHHHHHH")[dealerIdx];
+      else code = (PAIR[bjTotal] || "HHHHHHHHHH")[dealerIdx];
+      const map = { H: "HIT", S: "STAND", D: "DOUBLE", d: "DOUBLE", P: "SPLIT" };
+      return map[code] || "HIT";
+    }
+
+    const strategy = getStrategy();
+    const stratColor = { HIT: C.green, STAND: C.red, DOUBLE: C.gold, SPLIT: "#cc66ff" };
+
+    const balance = bj?.balance ?? bj?.bankroll ?? 100;
+    const bankroll = bj?.bankroll ?? 100;
+    const target10 = bankroll * 1.10;
+    const pnl = balance - bankroll;
+    const progress = Math.min(100, Math.max(0, ((balance - bankroll) / (target10 - bankroll)) * 100));
+    const KOS_SEQ = [1, 2, 3, 5, 3, 2, 1, 2, 3, 5];
+    const stepIdx = bj?.lossStep ?? 0;
+    const betAmt = bj?.actualBet ?? (KOS_SEQ[Math.min(stepIdx, 9)] * (bj?.baseUnit ?? 1));
+    const wins = bj?.wins ?? 0;
+    const losses = bj?.losses ?? 0;
+    const pushes = bj?.pushes ?? 0;
+    const dailyTarget = bj?.dailyGameOver;
+    const phase = bj?.phase;
+
+    const selStyle = (active) => ({
+      padding: "6px 12px", fontSize: 13, fontWeight: "bold", borderRadius: 6, cursor: "pointer",
+      backgroundColor: active ? "#ff9900" : C.card, color: active ? "#000" : C.gray,
+      border: active ? "2px solid #ff9900" : `1px solid ${C.border}`,
+    });
+
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#ff9900", fontWeight: "bold", fontSize: 20 }}>{balance.toFixed(2)}</div>
+            <div style={{ color: pnl >= 0 ? C.green : C.red, fontSize: 11 }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 10, color: C.gray }}>Target: <span style={{ color: C.gold }}>${target10.toFixed(2)}</span></div>
+            <div style={{ fontSize: 10, color: progress >= 100 ? C.green : C.gray }}>{progress.toFixed(0)}% of +10%</div>
+          </div>
+        </div>
+
+        <div style={S.content}>
+          {/* Status card */}
+          <div style={{ backgroundColor: C.card, borderRadius: 12, padding: "12px 16px", width: "100%", border: "1px solid #222" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              {dailyTarget ? (
+                <div style={{ color: C.green, fontSize: 16, fontWeight: "bold", width: "100%", textAlign: "center" }}>Daily Target Complete! +10%</div>
+              ) : phase === "waiting" ? (
+                <div style={{ color: C.gray, fontSize: 13, width: "100%", textAlign: "center" }}>Enter scoreboard leader (B or P)</div>
+              ) : phase === "observation" ? (
+                <div style={{ color: "#ffaa44", fontSize: 13, fontWeight: "bold", width: "100%", textAlign: "center" }}>{bj?.message}</div>
+              ) : bj?.gameOver ? (
+                <div style={{ color: bj?.win ? C.green : C.red, fontSize: 15, fontWeight: "bold", width: "100%", textAlign: "center" }}>
+                  {bj?.win ? "WIN ✓" : "GAME OVER"} &nbsp; PNL: {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <div style={{ color: C.gray, fontSize: 10, letterSpacing: 1 }}>BET</div>
+                    <div style={{ color: "#ff9900", fontSize: 20, fontWeight: "bold" }}>${betAmt?.toFixed ? betAmt.toFixed(2) : betAmt}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: C.gray, fontSize: 10 }}>W / L / P</div>
+                    <div style={{ fontSize: 14, fontWeight: "bold" }}>
+                      <span style={{ color: C.green }}>{wins}</span> / <span style={{ color: C.red }}>{losses}</span> / <span style={{ color: C.gray }}>{pushes}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <div style={{ height: 8, backgroundColor: "#1a1a2a", borderRadius: 4, overflow: "hidden", marginBottom: 4 }}>
+              <div style={{ height: "100%", borderRadius: 4, width: `${Math.max(0, progress)}%`, backgroundColor: progress >= 100 ? C.green : progress >= 60 ? C.gold : "#ff9900", transition: "width 0.4s ease" }} />
+            </div>
+          </div>
+
+          {/* Strategy advisor */}
+          {!bj?.gameOver && !dailyTarget && phase === "active" && (
+            <div style={{ backgroundColor: C.card, borderRadius: 12, padding: 14, width: "100%", border: "1px solid #333" }}>
+              <div style={{ color: C.gray, fontSize: 11, letterSpacing: 1, marginBottom: 10, textAlign: "center" }}>BASIC STRATEGY ADVISOR</div>
+
+              {/* Dealer upcard */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ color: C.gray, fontSize: 11, marginBottom: 6 }}>Dealer Upcard</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {DEALER_OPTS.map(d => (
+                    <button key={d} style={selStyle(bjDealer === d)} onClick={() => setBjDealer(d)}>{d}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Hand type */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ color: C.gray, fontSize: 11, marginBottom: 6 }}>Hand Type</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {["hard","soft","pair"].map(t => (
+                    <button key={t} style={selStyle(bjHandType === t)} onClick={() => { setBjHandType(t); setBjTotal(null); }}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Player total */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ color: C.gray, fontSize: 11, marginBottom: 6 }}>Your Hand</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {bjHandType === "hard" && [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21].map(n => (
+                    <button key={n} style={selStyle(bjTotal === n)} onClick={() => setBjTotal(n)}>{n}</button>
+                  ))}
+                  {bjHandType === "soft" && [13,14,15,16,17,18,19,20].map(n => (
+                    <button key={n} style={selStyle(bjTotal === n)} onClick={() => setBjTotal(n)}>A+{n-11}</button>
+                  ))}
+                  {bjHandType === "pair" && PAIR_LABELS.map((lbl, i) => (
+                    <button key={lbl} style={selStyle(bjTotal === PAIR_VALS[i])} onClick={() => setBjTotal(PAIR_VALS[i])}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Recommendation */}
+              {strategy ? (
+                <div style={{ textAlign: "center", padding: "12px 0", borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ color: C.gray, fontSize: 11, marginBottom: 4 }}>PLAY</div>
+                  <div style={{ fontSize: 32, fontWeight: "bold", color: stratColor[strategy] ?? C.white }}>{strategy}</div>
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", color: C.dark, fontSize: 13, paddingTop: 8 }}>Select dealer card and your hand</div>
+              )}
+            </div>
+          )}
+
+          {/* Result buttons */}
+          {!bj?.gameOver && !dailyTarget && phase === "active" && (
+            <div style={{ display: "flex", gap: 10, width: "100%" }}>
+              <button style={{ flex: 1, height: 72, fontSize: 20, fontWeight: "bold", backgroundColor: "#0a3a1a", color: C.green, border: `2px solid ${C.green}`, borderRadius: 12, cursor: "pointer", WebkitTapHighlightColor: "transparent" }} onClick={() => addBjResult("W")}>WIN</button>
+              <button style={{ flex: 1, height: 72, fontSize: 20, fontWeight: "bold", backgroundColor: "#3a0a0a", color: C.red, border: `2px solid ${C.red}`, borderRadius: 12, cursor: "pointer", WebkitTapHighlightColor: "transparent" }} onClick={() => addBjResult("L")}>LOSS</button>
+              <button style={{ flex: 1, height: 72, fontSize: 20, fontWeight: "bold", backgroundColor: "#1a1a1a", color: C.gray, border: `2px solid ${C.dark}`, borderRadius: 12, cursor: "pointer", WebkitTapHighlightColor: "transparent" }} onClick={() => addBjResult("P")}>PUSH</button>
+            </div>
+          )}
+
+          {/* Waiting/observation: W/L buttons only (no push) */}
+          {!bj?.gameOver && !dailyTarget && (phase === "waiting" || phase === "observation") && (
+            <div style={{ display: "flex", gap: 10, width: "100%" }}>
+              <button style={{ flex: 1, height: 72, fontSize: 20, fontWeight: "bold", backgroundColor: "#0a3a1a", color: C.green, border: `2px solid ${C.green}`, borderRadius: 12, cursor: "pointer" }} onClick={() => addBjResult("W")}>WIN</button>
+              <button style={{ flex: 1, height: 72, fontSize: 20, fontWeight: "bold", backgroundColor: "#3a0a0a", color: C.red, border: `2px solid ${C.red}`, borderRadius: 12, cursor: "pointer" }} onClick={() => addBjResult("L")}>LOSS</button>
+            </div>
+          )}
+
+          {(bj?.gameOver || dailyTarget) ? (
+            <button style={{ ...S.btnGold, backgroundColor: "#ff9900", color: "#000", width: "100%", marginBottom: 8 }} onClick={resetBjGame} disabled={loading}>New Game</button>
+          ) : (
+            <button style={{ ...S.btnGhost, width: "100%", fontSize: 12 }} onClick={finishBjGame} disabled={loading}>End Game</button>
+          )}
+        </div>
+        <FlashOverlay />
       </div>
     );
   }
