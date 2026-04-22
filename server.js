@@ -115,6 +115,7 @@ const SessionSchema = new mongoose.Schema({
   observationCount: { type: Number, default: 0 },
   observationLevel: { type: Number, default: 0 },
   observationTarget: { type: Number, default: 1 },
+  startSide: { type: String, default: null },
   currentSuggestion: { type: String, default: null },
   currentUnit: { type: Number, default: 1 },
   isActive: { type: Boolean, default: true },
@@ -221,6 +222,20 @@ function getScoreboard(history) {
   return { B: history.filter((r) => r === "B").length, P: history.filter((r) => r === "P").length, T: history.filter((r) => r === "T").length };
 }
 function fmt(n) { return Number(n.toFixed(2)); }
+// Kayip serisi: 1×S, 1×F, 2×S, 2×F, 3×S, 3×F, ...
+// step=0 → startSide, step=1 → flip, step=2,3 → start×2, step=4,5 → flip×2, ...
+function getLossSequenceSuggestion(startSide, step) {
+  const flipSide = startSide === "B" ? "P" : "B";
+  let pos = 0, count = 1, side = startSide;
+  while (true) {
+    for (let i = 0; i < count; i++) {
+      if (pos === step) return side;
+      pos++;
+    }
+    side = side === startSide ? flipSide : startSide;
+    if (side === startSide) count++;
+  }
+}
 function getLossThreshold(initialBankroll, lossLevel) {
   const percentages = [0.92, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65];
   return initialBankroll * percentages[Math.min(lossLevel, percentages.length - 1)];
@@ -261,7 +276,7 @@ function processResult(result, s) {
     const target = s.observationTarget || 1;
     if (s.observationCount >= target) {
       s.phase = "active"; s.observationCount = 0; s.lossStep = 0;
-      s.currentSuggestion = getLeader(s.bpHistory); s.currentUnit = 1;
+      s.currentSuggestion = s.startSide || getLeader(s.bpHistory); s.currentUnit = 1;
     }
     const remaining = target - s.observationCount;
     return { recommendation: s.phase === "active" ? s.currentSuggestion : null, unit: s.phase === "active" ? s.currentUnit : null, actualBet: s.phase === "active" ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: s.phase === "observation" ? `Observation: ${remaining} hand${remaining !== 1 ? "s" : ""} remaining` : "Observation done — betting resumes", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
@@ -273,8 +288,8 @@ function processResult(result, s) {
     return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: s.currentUnit ? fmt(s.currentUnit * s.baseUnit) : null, balance: fmt(s.balance), scoreboard, history, message: "TIE", phase: s.phase, baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   if (!s.currentSuggestion) {
-    // İlk el: oyuncunun girdiği taraf = favori → sistem aynı tarafla başlar
-    s.currentSuggestion = r; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
+    // İlk el: oyuncunun girdiği taraf = favori → startSide olarak kaydedilir
+    s.startSide = r; s.currentSuggestion = r; s.currentUnit = 1; s.phase = "active"; s.lossStep = 0;
     return { recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "Enter Your Favorite — next bet: " + s.currentSuggestion, phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
   const win = r === s.currentSuggestion;
@@ -292,7 +307,8 @@ function processResult(result, s) {
     const inBarrier = s.targetMax !== null && s.targetMax < s.maxWin;
     const commMsg = commission > 0 ? ` (commission -${commission})` : "";
     const msg = `WIN +${netWin}${commMsg}`;
-    s.consecutiveLosses = 0; s.currentSuggestion = leader;
+    s.consecutiveLosses = 0; s.lossStep = 0;
+    s.currentSuggestion = s.startSide || leader;
     // Recovery: gap-closing to game over target, max 5u
     const baseRef = s.targetMax !== null ? s.targetMax : s.bankroll;
     const gameOverTarget = fmt(baseRef + s.baseUnit * 0.8);
@@ -314,9 +330,9 @@ function processResult(result, s) {
     const lostUnit = s.currentUnit;
     applyLossLevel(s);
     s.consecutiveLosses++;
-    // 1. kayıp → 2u flip, sonraki kayıplar → 1u flip (reset yok)
-    s.currentSuggestion = s.currentSuggestion === "B" ? "P" : "B";
-    s.currentUnit = s.consecutiveLosses === 1 ? 2 : 1;
+    s.lossStep = (s.lossStep || 0) + 1;
+    s.currentSuggestion = getLossSequenceSuggestion(s.startSide || "B", s.lossStep);
+    s.currentUnit = 1;
     return { win: false, recommendation: s.currentSuggestion, unit: s.currentUnit, actualBet: fmt(s.currentUnit * s.baseUnit), balance: fmt(s.balance), scoreboard, history, message: "LOSS -" + lostUnit + " units", phase: "active", baseUnit: s.baseUnit, bankroll: s.bankroll, lossLevel: s.lossLevel, targetMax: s.targetMax != null ? fmt(s.targetMax) : null };
   }
 }
