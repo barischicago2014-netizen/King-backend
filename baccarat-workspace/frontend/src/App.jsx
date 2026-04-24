@@ -1134,7 +1134,7 @@ export default function App() {
         <div style={S.content}>
           {/* Scoreboard */}
           <div style={S.scoreboard}>
-            {[{ l: "BANKER", k: "B", c: "#4488ff" }, { l: "PLAYER", k: "P", c: C.red }, { l: "TIE", k: "T", c: C.green }].map(({ l, k, c }) => (
+            {[{ l: "PLAYER", k: "P", c: C.red }, { l: "TIE", k: "T", c: C.green }, { l: "BANKER", k: "B", c: "#4488ff" }].map(({ l, k, c }) => (
               <div key={k} style={{ textAlign: "center" }}>
                 <div style={{ color: c, fontSize: 12, fontWeight: "bold" }}>{l}</div>
                 <div style={{ fontSize: 20, fontWeight: "bold" }}>{sc[k]}</div>
@@ -1184,8 +1184,8 @@ export default function App() {
           {/* B / P buttons */}
           {!kos?.gameOver && !dailyTarget && (
             <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
-              <button style={btnStyle("B")} onClick={() => addKosResult("B")} disabled={loading}>BANKER</button>
               <button style={btnStyle("P")} onClick={() => addKosResult("P")} disabled={loading}>PLAYER</button>
+              <button style={btnStyle("B")} onClick={() => addKosResult("B")} disabled={loading}>BANKER</button>
             </div>
           )}
           {!kos?.gameOver && !dailyTarget && (
