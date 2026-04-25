@@ -282,9 +282,9 @@ function bjKosProcessResult(result, s) {
       return { gameOver: true, win: false, pnl: fmt(s.balance - s.bankroll), message: `GAME OVER! Loss: ${fmt(s.bankroll - s.balance)}`,
         balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit, wins: s.wins, losses: s.losses, pushes: s.pushes, lossStep: s.lossStep };
     }
-    if (s.totalLosses % 3 === 0) {
+    if (s.totalLosses % 4 === 0) {
       s.phase = "observation"; s.observationCount = 0;
-      return { win: false, phase: "observation", message: `LOSS -${betAmount} — Observation: 3 hands`,
+      return { win: false, phase: "observation", message: `LOSS -${betAmount} — Observation: 3 hands remaining`,
         unit: KOS_SEQ[s.lossStep], actualBet: fmt(KOS_SEQ[s.lossStep] * s.baseUnit),
         balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit, wins: s.wins, losses: s.losses, pushes: s.pushes, lossStep: s.lossStep };
     }
@@ -350,9 +350,9 @@ function kosProcessResult(result, s) {
       s.phase = "gameover"; s.isActive = false;
       return { gameOver: true, win: false, pnl: fmt(s.balance - s.bankroll), balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit, scoreboard, history, message: `GAME OVER! All steps exhausted. Loss: ${fmt(s.bankroll - s.balance)}` };
     }
-    if (s.totalLosses % 3 === 0) {
+    if (s.totalLosses % 4 === 0) {
       s.phase = "observation"; s.observationCount = 0;
-      return { win: false, phase: "observation", message: `LOSS -${betAmount} — Observation: 3 hands`, side: s.side, scoreboard, history, balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit };
+      return { win: false, phase: "observation", message: `LOSS -${betAmount} — Observation: 3 hands remaining`, side: s.side, scoreboard, history, balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit };
     }
     return { win: false, phase: "active", message: `LOSS -${betAmount}`, side: s.side, unit: KOS_SEQ[s.lossStep], actualBet: fmt(KOS_SEQ[s.lossStep] * s.baseUnit), scoreboard, history, balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit };
   }
@@ -405,9 +405,9 @@ function rouletteKosProcessResult(result, s) {
       return { gameOver: true, win: false, pnl: fmt(s.balance - s.bankroll), message: `GAME OVER! Loss: ${fmt(s.bankroll - s.balance)}`, ...base };
     }
     const obsMsg = r === "Z" ? `ZERO — LOSS -${betAmount}` : `LOSS -${betAmount}`;
-    if (s.totalLosses % 3 === 0) {
+    if (s.totalLosses % 4 === 0) {
       s.phase = "observation"; s.observationCount = 0;
-      return { win: false, phase: "observation", message: `${obsMsg} — Observation: 3 hands`, side: s.side, ...base };
+      return { win: false, phase: "observation", message: `${obsMsg} — Observation: 3 hands remaining`, side: s.side, ...base };
     }
     return { win: false, phase: "active", message: obsMsg, side: s.side, unit: KOS_SEQ[s.lossStep], actualBet: fmt(KOS_SEQ[s.lossStep] * s.baseUnit), ...base };
   }
