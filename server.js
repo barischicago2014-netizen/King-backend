@@ -1364,10 +1364,20 @@ async function sendDailyReport() {
   } catch (err) { console.error("Rapor gonderilemedi:", err.message); }
 }
 
-cron.schedule("0 0 * * *", sendDailyReport);
+// node-cron only works in persistent environments — on Vercel use the /admin/send-report-cron route instead
+// cron.schedule("0 0 * * *", sendDailyReport);
 
 app.get("/admin/send-report", adminLimiter, async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  await sendDailyReport();
+  return res.json({ message: "Rapor gonderildi" });
+});
+
+app.get("/admin/send-report-cron", async (req, res) => {
+  const secret = req.headers["x-cron-secret"] || req.query.secret;
+  if (!secret || secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
   await sendDailyReport();
   return res.json({ message: "Rapor gonderildi" });
 });
@@ -1433,6 +1443,348 @@ app.get("/admin/export-csv/:username", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="rapor-${username}-${new Date().toISOString().slice(0,10)}.csv"`);
     return res.send(rows.join("\n"));
   } catch (err) { return res.status(500).json({ message: err.message }); }
+});
+
+// ═══ NEXT LEVEL STRATEGY ════════════════════════════════════════════════════
+
+const NL_ROWS = 5;
+const NL_COLS = 14;
+const NL_BELL = [1, 2, 3, 5, 8, 5, 3, 2, 1];   // Bell (pyramid) Fibonacci
+const NL_FIB  = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]; // Secret (classic) Fibonacci
+
+const NLSessionSchema = new mongoose.Schema({
+  userId:       { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  username:     { type: String, default: null },
+  bankroll:     { type: Number, default: 100 },
+  baseUnit:     { type: Number, default: 1 },
+  balance:      { type: Number, default: 100 },
+  maxWin:       { type: Number, default: 100 },
+  beadPlate:    [{ type: String }],          // "B" | "P" | "T", fills col-by-col, 5 rows × 14 cols
+  syncMode:     { type: String, default: "no-mirror" },  // "no-mirror" | "mirror"
+  betLevelBell: { type: Number, default: 0 },            // index into NL_BELL (0–8)
+  betLevelFib:  { type: Number, default: 0 },            // index into NL_FIB  (0–9)
+  lastPrediction: { type: String, default: null },       // "B" | "P" | null
+  phase:        { type: String, default: "active" },     // "active" | "gameover"
+  isActive:     { type: Boolean, default: true },
+  startedAt:    { type: Date, default: Date.now },
+  updatedAt:    { type: Date, default: Date.now },
+  handLog: [{
+    handNo: Number, prediction: String, result: String, win: Boolean,
+    betBell: Number, betFib: Number, syncMode: String,
+    balanceAfter: Number, colIdx: Number, rowIdx: Number, timestamp: Date,
+  }],
+});
+const NLSession = mongoose.models.NLSession || mongoose.model("NLSession", NLSessionSchema);
+
+// Returns prediction based on reference result and current sync mode
+function nlApplySync(refResult, syncMode) {
+  if (!refResult || refResult === "T") return null;
+  return syncMode === "mirror" ? refResult : (refResult === "B" ? "P" : "B");
+}
+
+// Returns bet amounts for both systems at given levels
+function nlGetBetAmounts(bellLevel, fibLevel, baseUnit) {
+  return {
+    bell: fmt(NL_BELL[Math.min(bellLevel, NL_BELL.length - 1)] * baseUnit),
+    fib:  fmt(NL_FIB[Math.min(fibLevel,  NL_FIB.length  - 1)] * baseUnit),
+  };
+}
+
+// Computes prediction + reason for the NEXT hand
+function nlNextPrediction(beadPlate, nextHandIdx, syncMode) {
+  if (nextHandIdx >= NL_ROWS * NL_COLS) return { prediction: null, reason: "full" };
+  const nextColIdx = Math.floor(nextHandIdx / NL_ROWS);
+  const nextRowIdx = nextHandIdx % NL_ROWS;
+  if (nextColIdx < 1) return { prediction: null, reason: "filling" };
+  const refIdx = (nextColIdx - 1) * NL_ROWS + nextRowIdx;
+  const refResult = beadPlate[refIdx];
+  if (!refResult) return { prediction: null, reason: "ref_missing" };
+  if (refResult === "T") {
+    const refColLetter = String.fromCharCode(65 + nextColIdx - 1);
+    return { prediction: null, reason: "ref_is_tie", refCol: refColLetter, refRow: nextRowIdx + 1 };
+  }
+  return { prediction: nlApplySync(refResult, syncMode), reason: "ok", refValue: refResult };
+}
+
+function nextLevelProcessResult(result, s) {
+  const r = String(result).toUpperCase().trim();
+  if (!["B", "P", "T"].includes(r)) throw new Error("Invalid result: B/P/T");
+  if (s.phase === "gameover") return { gameOver: true, balance: fmt(s.balance) };
+
+  s.updatedAt = new Date();
+
+  // handIdx = 0-based index of this hand BEFORE we push
+  const handIdx = s.beadPlate.length;
+  s.beadPlate.push(r);
+
+  const colIdx = Math.floor(handIdx / NL_ROWS);
+  const rowIdx = handIdx % NL_ROWS;
+
+  const scoreboard = {
+    B: s.beadPlate.filter(x => x === "B").length,
+    P: s.beadPlate.filter(x => x === "P").length,
+    T: s.beadPlate.filter(x => x === "T").length,
+  };
+
+  // ── Evaluate previous prediction (only if had one and result is not T) ──────
+  let win = null;
+  let evalMsg = "";
+  let betsUsed = null;
+
+  if (r !== "T" && s.lastPrediction && colIdx >= 1) {
+    betsUsed = nlGetBetAmounts(s.betLevelBell, s.betLevelFib, s.baseUnit);
+    win = s.lastPrediction === r;
+
+    if (win) {
+      const comm = s.lastPrediction === "B" ? fmt(betsUsed.bell * 0.05) : 0;
+      const net  = fmt(betsUsed.bell - comm);
+      s.balance = fmt(s.balance + net);
+      if (s.balance > s.maxWin) s.maxWin = s.balance;
+      s.betLevelBell = Math.max(0, s.betLevelBell - 1);
+      s.betLevelFib  = Math.max(0, s.betLevelFib  - 2);
+      evalMsg = `WIN +${net}${comm > 0 ? " (commission -" + comm + ")" : ""}`;
+    } else {
+      s.balance = fmt(s.balance - betsUsed.bell);
+      s.betLevelBell = Math.min(NL_BELL.length - 1, s.betLevelBell + 1);
+      s.betLevelFib  = Math.min(NL_FIB.length  - 1, s.betLevelFib  + 1);
+      evalMsg = `LOSS -${betsUsed.bell}`;
+    }
+
+    s.handLog.push({
+      handNo: s.handLog.length + 1,
+      prediction: s.lastPrediction, result: r, win,
+      betBell: betsUsed.bell, betFib: betsUsed.fib,
+      syncMode: s.syncMode,
+      balanceAfter: s.balance,
+      colIdx, rowIdx,
+      timestamp: new Date(),
+    });
+  } else if (r === "T" && colIdx >= 1) {
+    // Tie result: no money change, log as tie event
+    evalMsg = "TIE — no bet change";
+    s.handLog.push({
+      handNo: s.handLog.length + 1,
+      prediction: s.lastPrediction || null, result: "T", win: null,
+      betBell: null, betFib: null, syncMode: s.syncMode,
+      balanceAfter: s.balance, colIdx, rowIdx, timestamp: new Date(),
+    });
+  } else if (!s.lastPrediction && colIdx >= 1) {
+    // PASS hand (ref was T): no money change, log as pass event
+    evalMsg = "PASS — ref was Tie, no bet placed";
+    s.handLog.push({
+      handNo: s.handLog.length + 1,
+      prediction: null, result: r, win: null,
+      betBell: null, betFib: null, syncMode: s.syncMode,
+      balanceAfter: s.balance, colIdx, rowIdx, timestamp: new Date(),
+    });
+  }
+
+  // ── ALWAYS flip syncMode once we're past column A ─────────────────────────
+  // Applies to: normal results, Ties, and PASS hands (ref was T)
+  if (colIdx >= 1) {
+    s.syncMode = s.syncMode === "no-mirror" ? "mirror" : "no-mirror";
+  }
+
+  // ── Compute next prediction ────────────────────────────────────────────────
+  const nextHandIdx = s.beadPlate.length;
+  const { prediction, reason: nextReason, refCol: nextRefCol, refRow: nextRefRow } = nlNextPrediction(s.beadPlate, nextHandIdx, s.syncMode);
+  s.lastPrediction = prediction;
+
+  const nextBets = nlGetBetAmounts(s.betLevelBell, s.betLevelFib, s.baseUnit);
+
+  // ── Game over checks ───────────────────────────────────────────────────────
+  if (s.balance <= 0) {
+    s.phase = "gameover"; s.isActive = false;
+    return { gameOver: true, win, message: "GAME OVER — Balance depleted", scoreboard, balance: 0, bankroll: s.bankroll, baseUnit: s.baseUnit, phase: "gameover" };
+  }
+  if (s.beadPlate.length >= NL_ROWS * NL_COLS) {
+    s.phase = "gameover"; s.isActive = false;
+    return { gameOver: true, message: "Session complete — bead plate full (70 hands)", scoreboard, balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit, phase: "gameover" };
+  }
+
+  // ── Build sync context for UI display ─────────────────────────────────────
+  const nextColIdx     = Math.floor(nextHandIdx / NL_ROWS);
+  const nextRowIdx     = nextHandIdx % NL_ROWS;
+  const nextRefColLetter = nextColIdx > 0 ? String.fromCharCode(65 + nextColIdx - 1) : null;
+
+  const isFillingFirst = colIdx < 1 && nextReason === "filling";
+
+  // syncInfo: describes what the NEXT bet is doing (or why it's a pass)
+  let syncInfo;
+  if (prediction) {
+    syncInfo = {
+      mode: s.syncMode,
+      label: s.syncMode === "no-mirror" ? "NO-MIRROR" : "MIRROR",
+      description: s.syncMode === "no-mirror"
+        ? `Predicting OPPOSITE of Col-${nextRefColLetter} Row-${nextRowIdx + 1}`
+        : `Predicting SAME as Col-${nextRefColLetter} Row-${nextRowIdx + 1}`,
+      refValue: s.beadPlate[(nextColIdx - 1) * NL_ROWS + nextRowIdx] || null,
+    };
+  } else if (nextReason === "ref_is_tie") {
+    syncInfo = {
+      mode: s.syncMode,
+      label: "PASS",
+      description: `Col-${nextRefCol} Row-${nextRefRow} is Tie — no bet next hand, sync still flips`,
+      refValue: "T",
+    };
+  } else {
+    syncInfo = null;
+  }
+
+  // Determine phase/message for this response
+  // colIdx=0 → still filling Column A regardless of whether prediction is ready
+  let phaseOut, msgOut;
+  if (colIdx < 1) {
+    phaseOut = "filling";
+    if (prediction) {
+      // Hand 5 complete — Column A full, first prediction ready for Hand 6
+      msgOut = `Column A complete — Game starts Hand 6 | Predict: ${prediction} | Bell: ${nextBets.bell} | Fib: ${nextBets.fib}`;
+    } else {
+      const rem = NL_ROWS - s.beadPlate.length;
+      msgOut = `Filling Column A — ${rem} more result${rem !== 1 ? "s" : ""} needed`;
+    }
+  } else if (nextReason === "ref_is_tie") {
+    phaseOut = "pass";
+    msgOut = evalMsg || `PASS next hand — Col-${nextRefCol} Row-${nextRefRow} is Tie (sync flipped to ${s.syncMode.toUpperCase()})`;
+  } else {
+    phaseOut = "active";
+    msgOut = evalMsg || `Column ${String.fromCharCode(65 + colIdx)} Row ${rowIdx + 1} recorded`;
+  }
+
+  return {
+    win,
+    phase: phaseOut,
+    message: msgOut,
+    scoreboard,
+    balance: fmt(s.balance), bankroll: s.bankroll, baseUnit: s.baseUnit, maxWin: fmt(s.maxWin),
+    syncMode: s.syncMode,
+    prediction,
+    betBell: prediction ? nextBets.bell : null,
+    betFib:  prediction ? nextBets.fib  : null,
+    betLevelBell: s.betLevelBell,
+    betLevelFib:  s.betLevelFib,
+    handCount: s.beadPlate.length,
+    currentColumn: String.fromCharCode(65 + colIdx),
+    refColumn: colIdx > 0 ? String.fromCharCode(65 + colIdx - 1) : null,
+    rowInColumn: rowIdx + 1,
+    syncInfo,
+  };
+}
+
+// ── Next Level Routes ─────────────────────────────────────────────────────────
+
+app.post("/nl/start", authWithPlan, gameLimiter, async (req, res) => {
+  try {
+    await connectDB();
+    const { bankroll } = req.body;
+    if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Valid bankroll required" });
+    const baseUnit = fmt(bankroll * 0.01);
+    await NLSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    const session = await NLSession.create({
+      userId: req.user.id, username: req.user.username,
+      bankroll, baseUnit, balance: bankroll, maxWin: bankroll,
+    });
+    return res.json({
+      sessionId: String(session._id),
+      balance: bankroll, bankroll, baseUnit,
+      phase: "filling",
+      message: `Next Level started — fill Column A (${NL_ROWS} results needed)`,
+      beadGrid: Array(NL_COLS).fill(null).map(() => Array(NL_ROWS).fill(null)),
+      scoreboard: { B: 0, P: 0, T: 0 },
+      syncMode: "no-mirror",
+      prediction: null, betBell: null, betFib: null,
+      betLevelBell: 0, betLevelFib: 0,
+      handCount: 0,
+      bellSequence: NL_BELL,
+      fibSequence: NL_FIB,
+    });
+  } catch (err) { return res.status(500).json({ message: "Start failed", error: err.message }); }
+});
+
+app.get("/nl/state", authWithPlan, gameLimiter, async (req, res) => {
+  try {
+    await connectDB();
+    const session = await NLSession.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    if (!session) return res.status(404).json({ message: "No active Next Level session" });
+    const beadGrid = [];
+    for (let c = 0; c < NL_COLS; c++) {
+      const col = [];
+      for (let row = 0; row < NL_ROWS; row++) col.push(session.beadPlate[c * NL_ROWS + row] || null);
+      beadGrid.push(col);
+    }
+    const scoreboard = {
+      B: session.beadPlate.filter(x => x === "B").length,
+      P: session.beadPlate.filter(x => x === "P").length,
+      T: session.beadPlate.filter(x => x === "T").length,
+    };
+    const nextBets = nlGetBetAmounts(session.betLevelBell, session.betLevelFib, session.baseUnit);
+    return res.json({
+      sessionId: String(session._id),
+      balance: fmt(session.balance), bankroll: session.bankroll, baseUnit: session.baseUnit, maxWin: fmt(session.maxWin),
+      phase: session.phase, syncMode: session.syncMode,
+      prediction: session.lastPrediction,
+      betBell: session.lastPrediction ? nextBets.bell : null,
+      betFib:  session.lastPrediction ? nextBets.fib  : null,
+      betLevelBell: session.betLevelBell, betLevelFib: session.betLevelFib,
+      beadGrid, scoreboard,
+      handCount: session.beadPlate.length,
+      bellSequence: NL_BELL, fibSequence: NL_FIB,
+      // Full hand log + raw bead plate — for report/testing
+      handLog: session.handLog,
+      beadPlateRaw: session.beadPlate,
+    });
+  } catch (err) { return res.status(500).json({ message: "State failed", error: err.message }); }
+});
+
+app.post("/nl/result", authWithPlan, gameLimiter, async (req, res) => {
+  try {
+    await connectDB();
+    const { result, sessionId } = req.body;
+    if (!["B", "P", "T"].includes(String(result || "").toUpperCase())) return res.status(400).json({ message: "Invalid result. Use B, P, or T" });
+    const query = sessionId ? { _id: sessionId, userId: req.user.id, isActive: true } : { userId: req.user.id, isActive: true };
+    const session = await NLSession.findOne(query).sort({ updatedAt: -1 });
+    if (!session) return res.status(404).json({ message: "No active Next Level session" });
+    const state = nextLevelProcessResult(result, session);
+    session.markModified("beadPlate"); session.markModified("handLog");
+    if (state.gameOver) session.isActive = false;
+    await session.save();
+    return res.json({ ...state, sessionId: String(session._id), bellSequence: NL_BELL, fibSequence: NL_FIB });
+  } catch (err) { return res.status(500).json({ message: "Result failed", error: err.message }); }
+});
+
+app.post("/nl/reset", authWithPlan, gameLimiter, async (req, res) => {
+  try {
+    await connectDB();
+    const { bankroll } = req.body;
+    if (!bankroll || bankroll <= 0) return res.status(400).json({ message: "Valid bankroll required" });
+    const baseUnit = fmt(bankroll * 0.01);
+    await NLSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    const session = await NLSession.create({
+      userId: req.user.id, username: req.user.username,
+      bankroll, baseUnit, balance: bankroll, maxWin: bankroll,
+    });
+    return res.json({
+      sessionId: String(session._id),
+      balance: bankroll, bankroll, baseUnit, phase: "filling",
+      message: `Next Level reset — fill Column A (${NL_ROWS} results needed)`,
+      beadGrid: Array(NL_COLS).fill(null).map(() => Array(NL_ROWS).fill(null)),
+      scoreboard: { B: 0, P: 0, T: 0 },
+      syncMode: "no-mirror", prediction: null, betBell: null, betFib: null,
+      betLevelBell: 0, betLevelFib: 0, handCount: 0,
+      bellSequence: NL_BELL, fibSequence: NL_FIB,
+    });
+  } catch (err) { return res.status(500).json({ message: "Reset failed", error: err.message }); }
+});
+
+app.post("/nl/finish", authWithPlan, gameLimiter, async (req, res) => {
+  try {
+    await connectDB();
+    const session = await NLSession.findOne({ userId: req.user.id, isActive: true }).sort({ updatedAt: -1 });
+    if (!session) return res.status(404).json({ message: "No active Next Level session" });
+    const finalBalance = fmt(session.balance);
+    await NLSession.updateMany({ userId: req.user.id, isActive: true }, { isActive: false });
+    return res.json({ message: "Next Level session finished", balance: finalBalance });
+  } catch (err) { return res.status(500).json({ message: "Finish failed", error: err.message }); }
 });
 
 // Catch-all: serve React frontend for any non-API route

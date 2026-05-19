@@ -63,10 +63,15 @@ export default function App() {
   // Blackjack state
   const [bj, setBj] = useState(null);
   const [bjSessionId, setBjSessionId] = useState(null);
-  const [bjDealer, setBjDealer] = useState(null);   // dealer upcard
-  const [bjHandType, setBjHandType] = useState("hard"); // hard|soft|pair
-  const [bjTotal, setBjTotal] = useState(null);      // player total
+  const [bjDealer, setBjDealer] = useState(null);
+  const [bjHandType, setBjHandType] = useState("hard");
+  const [bjTotal, setBjTotal] = useState(null);
   const bjInFlight = useRef(false);
+  // Next Level state
+  const [nl, setNl] = useState(null);
+  const [nlSessionId, setNlSessionId] = useState(null);
+  const [nlLastResult, setNlLastResult] = useState(null);
+  const nlInFlight = useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem("bac_token");
@@ -92,7 +97,7 @@ export default function App() {
       localStorage.setItem("bac_role", res.data.role || "user");
       setUser({ token: res.data.token, username: res.data.username, role: res.data.role || "user" });
       setForm({ username: "", password: "" });
-      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : selectedGame === "kos" ? "kos-bankroll" : selectedGame === "rkos" ? "rkos-bankroll" : selectedGame === "bj" ? "bj-bankroll" : "bankroll");
+      setScreen(selectedGame === "roulette" ? "roulette-bankroll" : selectedGame === "kos" ? "kos-bankroll" : selectedGame === "rkos" ? "rkos-bankroll" : selectedGame === "bj" ? "bj-bankroll" : selectedGame === "nl" ? "nl-bankroll" : "bankroll");
     } catch (err) {
       const code = err.response?.data?.code;
       const username = err.response?.data?.username;
@@ -451,6 +456,56 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
+  // ── Next Level functions ───────────────────────────────────────────────────
+  async function startNlGame() {
+    const val = parseFloat(bankrollInput);
+    if (!val || val <= 0) { setBankrollError("Enter a valid bankroll"); return; }
+    setBankrollError(""); setLoading(true);
+    try {
+      const res = await api.post("/nl/start", { bankroll: val });
+      setNl(res.data); setNlSessionId(res.data.sessionId || null);
+      setNlLastResult(null); setScreen("nl-game");
+    } catch (err) {
+      setBankrollError(err.response?.data?.message || "Failed to start");
+    } finally { setLoading(false); }
+  }
+
+  async function addNlResult(result) {
+    if (nlInFlight.current || nl?.gameOver) return;
+    nlInFlight.current = true;
+    try {
+      const query = nlSessionId ? { result, sessionId: nlSessionId } : { result };
+      const res = await api.post("/nl/result", query);
+      setNl((prev) => ({ ...prev, ...res.data }));
+      setNlLastResult(result);
+      if (res.data.win === true) showFlash("WIN!", C.green);
+      else if (res.data.win === false) showFlash("LOSS", C.red);
+      else if (result === "T") showFlash("TIE", C.gray);
+    } catch (err) {
+      if (err.response?.status === 404) setScreen("nl-bankroll");
+    } finally { nlInFlight.current = false; }
+  }
+
+  async function resetNlGame() {
+    const newBankroll = nl?.balance || nl?.bankroll || 100;
+    setLoading(true);
+    try {
+      const res = await api.post("/nl/reset", { bankroll: newBankroll });
+      setNl(res.data); setNlSessionId(res.data.sessionId || null);
+      setNlLastResult(null);
+    } finally { setLoading(false); }
+  }
+
+  async function finishNlGame() {
+    if (!window.confirm("End this session?")) return;
+    setLoading(true);
+    try {
+      await api.post("/nl/finish");
+      setNl(null); setNlSessionId(null); setNlLastResult(null);
+      setScreen("landing");
+    } finally { setLoading(false); }
+  }
+
   async function resetGame() {
     const newBankroll = gs?.balance || gs?.bankroll || 100;
     setLoading(true);
@@ -508,6 +563,7 @@ export default function App() {
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#4488ff", border: "2px solid #4488ff", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("kos"); setScreen(user ? "kos-bankroll" : "login"); }}>Sign In — King of Stand</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#44bbaa", border: "2px solid #44bbaa", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("rkos"); setScreen(user ? "rkos-bankroll" : "login"); }}>Sign In — Roulette Stand</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#ff9900", border: "2px solid #ff9900", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("bj"); setScreen(user ? "bj-bankroll" : "login"); }}>Sign In — Blackjack Stand</button>
+          <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: "#a78bfa", border: "2px solid #a78bfa", borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setSelectedGame("nl"); setScreen(user ? "nl-bankroll" : "login"); }}>Sign In — Next Level ⚡</button>
           <button style={{ padding: "13px 0", width: "100%", maxWidth: 300, fontSize: 16, fontWeight: "bold", backgroundColor: "transparent", color: C.gold, border: `2px solid ${C.gold}`, borderRadius: 8, cursor: "pointer", marginBottom: 10 }} onClick={() => { setFormError(""); setTermsAccepted(false); setScreen("signup"); }}>Create Account</button>
           {user?.role === "admin" && (
             <button style={{ padding: "9px 0", width: "100%", maxWidth: 300, fontSize: 13, backgroundColor: "transparent", color: "#888", border: "1px solid #333", borderRadius: 6, cursor: "pointer" }} onClick={() => setScreen("admin")}>Admin Panel</button>
@@ -927,6 +983,191 @@ export default function App() {
                 </span>
               ))}
             </div>
+          )}
+        </div>
+        <FlashOverlay />
+      </div>
+    );
+  }
+
+  // ═══ NEXT LEVEL BANKROLL ════════════════════════════════
+  if (screen === "nl-bankroll") {
+    const preview = parseFloat(bankrollInput);
+    const unitPreview = preview > 0 ? (preview * 0.005).toFixed(2) : null;
+    return (
+      <div style={S.page}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ backgroundColor: C.card, border: "1px solid #4a2a8a", padding: 32, borderRadius: 14, width: "100%", maxWidth: 320 }}>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ color: "#a78bfa", fontSize: 22, fontWeight: "bold", marginBottom: 4 }}>⚡ NEXT LEVEL</div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 4 }}>👤 {user?.username}</div>
+              <h2 style={{ color: C.gold, fontSize: 20, margin: 0 }}>Enter Your Bankroll</h2>
+            </div>
+            <input
+              style={{ ...S.input, marginBottom: 8, fontSize: 22, textAlign: "center" }}
+              type="number" placeholder="0" value={bankrollInput}
+              onChange={(e) => setBankrollInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && startNlGame()}
+              autoFocus
+            />
+            {unitPreview && (
+              <p style={{ color: C.gray, fontSize: 13, textAlign: "center", marginBottom: 12 }}>
+                Unit: <span style={{ color: C.gold }}>${unitPreview}</span> (0.5%) &nbsp;|&nbsp; Target: <span style={{ color: "#a78bfa" }}>+2%</span>
+              </p>
+            )}
+            {bankrollError && <p style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{bankrollError}</p>}
+            <button style={{ ...S.btnGold, marginBottom: 10, backgroundColor: "#7c3aed", color: "#fff" }} onClick={startNlGame} disabled={loading}>{loading ? "..." : "Start Next Level"}</button>
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: "center" }} onClick={() => setScreen("landing")}>← Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ NEXT LEVEL GAME ════════════════════════════════════
+  if (screen === "nl-game") {
+    const sc = nl?.scoreboard || { B: 0, P: 0, T: 0 };
+    const phase = nl?.phase;
+    const pred = nl?.prediction;
+    const syncMode = nl?.syncMode;
+    const syncInfo = nl?.syncInfo;
+    const isFillingA = phase === "filling" && !pred;
+    const isReady = phase === "filling" && pred;
+    const isPass = phase === "pass";
+    const isActive = phase === "active";
+    const pnl = nl?.balance != null && nl?.bankroll != null ? (nl.balance - nl.bankroll) : null;
+
+    return (
+      <div style={S.page}>
+        {/* Header */}
+        <div style={{ ...S.header, borderBottom: "1px solid #4a2a8a" }}>
+          <span style={{ color: C.gray, fontSize: 12 }}>👤 {user?.username}</span>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: "#a78bfa", fontSize: 11, letterSpacing: 1 }}>⚡ NEXT LEVEL</div>
+            <div style={{ color: C.gold, fontWeight: "bold", fontSize: 20 }}>{nl?.balance?.toFixed(2) ?? "—"}</div>
+            <div style={{ color: C.gray, fontSize: 11 }}>unit: ${nl?.baseUnit?.toFixed(2)}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            {pnl != null && <div style={{ color: pnl >= 0 ? C.green : C.red, fontSize: 13, fontWeight: "bold" }}>{pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</div>}
+            <div style={{ color: "#a78bfa", fontSize: 10 }}>
+              {syncMode === "mirror" ? "🔁 MIRROR" : "🔀 NO-MIRROR"}
+            </div>
+          </div>
+        </div>
+
+        <div style={S.content}>
+          {/* Scoreboard */}
+          <ScoreboardBlock sc={sc} />
+
+          {/* Status / Recommendation */}
+          {!nl?.gameOver && (
+            <div style={{ ...S.recBox, border: `2px solid ${isActive && pred ? "#7c3aed" : isReady ? "#a78bfa" : isPass ? "#d97706" : C.border}`, minHeight: 130 }}>
+              {isFillingA && (
+                <>
+                  <div style={{ color: "#a78bfa", fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>COLUMN A — FILLING</div>
+                  <div style={{ color: C.gray, fontSize: 16 }}>{nl?.message || "Enter results to fill Column A"}</div>
+                  <div style={{ color: C.gray, fontSize: 12, marginTop: 8 }}>Hand {(nl?.handCount || 0) + 1} of 5</div>
+                </>
+              )}
+              {isReady && (
+                <>
+                  <div style={{ color: "#a78bfa", fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>COLUMN A COMPLETE ✓</div>
+                  <div style={{ color: C.gold, fontSize: 13, marginBottom: 10 }}>Game starts next hand</div>
+                  <div style={{ fontSize: 40, fontWeight: "bold", color: pred === "B" ? C.red : C.blue, marginBottom: 4 }}>{pred === "B" ? "BANKER" : "PLAYER"}</div>
+                  <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#a78bfa", fontSize: 10 }}>BELL FIB</div>
+                      <div style={{ color: C.gold, fontWeight: "bold", fontSize: 16 }}>${nl?.betBell}</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#a78bfa", fontSize: 10 }}>SECRET FIB</div>
+                      <div style={{ color: C.gold, fontWeight: "bold", fontSize: 16 }}>${nl?.betFib}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+              {isPass && (
+                <>
+                  <div style={{ color: "#d97706", fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>⏭ PASS — NO BET</div>
+                  <div style={{ color: C.gray, fontSize: 13 }}>{syncInfo?.description || "Reference is Tie — enter result to continue"}</div>
+                  <div style={{ color: "#a78bfa", fontSize: 11, marginTop: 8 }}>Sync flipped → {syncMode === "mirror" ? "MIRROR" : "NO-MIRROR"}</div>
+                </>
+              )}
+              {isActive && pred && (
+                <>
+                  <div style={{ color: "#a78bfa", fontSize: 11, letterSpacing: 2, marginBottom: 6 }}>
+                    {syncMode === "mirror" ? "🔁 MIRROR" : "🔀 NO-MIRROR"}
+                    {syncInfo?.refValue && <span style={{ color: C.gray, fontSize: 10 }}> &nbsp;(ref: {syncInfo.refValue})</span>}
+                  </div>
+                  <div style={{ fontSize: 42, fontWeight: "bold", marginBottom: 6, color: pred === "B" ? C.red : C.blue }}>{pred === "B" ? "BANKER" : "PLAYER"}</div>
+                  <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#a78bfa", fontSize: 10, marginBottom: 2 }}>BELL FIB</div>
+                      <div style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>${nl?.betBell}</div>
+                      <div style={{ color: C.gray, fontSize: 10 }}>Lv.{nl?.betLevelBell}</div>
+                    </div>
+                    <div style={{ width: 1, backgroundColor: "#4a2a8a" }} />
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#a78bfa", fontSize: 10, marginBottom: 2 }}>SECRET FIB</div>
+                      <div style={{ color: C.gold, fontWeight: "bold", fontSize: 18 }}>${nl?.betFib}</div>
+                      <div style={{ color: C.gray, fontSize: 10 }}>Lv.{nl?.betLevelFib}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+              {isActive && !pred && (
+                <>
+                  <div style={{ color: C.gray, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>WAITING</div>
+                  <div style={{ color: C.gray, fontSize: 14 }}>Enter result to get next prediction</div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Message */}
+          {nl?.message && !nl.gameOver && (
+            <div style={{ fontSize: 13, fontWeight: "bold", padding: "8px 18px", borderRadius: 8, backgroundColor: C.card, color: nl.message.includes("WIN") ? C.green : nl.message.includes("LOSS") ? C.red : nl.message.includes("TIE") ? "#d97706" : nl.message.includes("PASS") ? "#9333ea" : C.white, textAlign: "center", width: "100%" }}>
+              {nl.message}
+            </div>
+          )}
+
+          {/* Column info */}
+          {nl?.currentColumn && !nl.gameOver && (
+            <div style={{ display: "flex", gap: 12, fontSize: 12, color: C.gray }}>
+              <span>Col: <b style={{ color: "#a78bfa" }}>{nl.currentColumn}</b></span>
+              {nl.refColumn && <span>Ref: <b style={{ color: "#a78bfa" }}>{nl.refColumn}</b></span>}
+              <span>Row: <b style={{ color: "#a78bfa" }}>{nl.rowInColumn}</b></span>
+              <span>Hand: <b style={{ color: C.gold }}>{nl.handCount}</b>/70</span>
+            </div>
+          )}
+
+          {/* Game Over */}
+          {nl?.gameOver ? (
+            <div style={{ textAlign: "center", padding: 24, width: "100%" }}>
+              <div style={{ fontSize: 42, fontWeight: "bold", color: "#a78bfa", marginBottom: 8 }}>SESSION OVER</div>
+              <div style={{ color: nl?.balance >= nl?.bankroll ? C.green : C.red, fontSize: 22, marginBottom: 6 }}>
+                {nl?.balance >= nl?.bankroll ? "+" : ""}${(nl?.balance - nl?.bankroll)?.toFixed(2)} &nbsp;
+                <span style={{ fontSize: 14, color: C.gray }}>({((nl?.balance / nl?.bankroll - 1) * 100)?.toFixed(2)}%)</span>
+              </div>
+              <div style={{ color: C.gray, fontSize: 13, marginBottom: 20 }}>Balance: ${nl?.balance?.toFixed(2)}</div>
+              <button style={{ ...S.btnGold, marginBottom: 12, backgroundColor: "#7c3aed", color: "#fff" }} onClick={resetNlGame} disabled={loading}>{loading ? "..." : "New Session"}</button>
+              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300, marginBottom: 8 }} onClick={() => setScreen("landing")}>← Back to Menu</button>
+              <button style={{ ...S.btnGhost, width: "100%", maxWidth: 300 }} onClick={handleLogout}>Sign Out</button>
+            </div>
+          ) : (
+            <>
+              {/* B / T / P buttons */}
+              <div style={{ display: "flex", gap: 14, width: "100%", justifyContent: "center" }}>
+                {[{ l: "P", sub: "PLAYER", color: C.blue }, { l: "T", sub: "TIE", color: C.dark }, { l: "B", sub: "BANKER", color: C.red }].map(({ l, sub, color }) => (
+                  <button key={l} onClick={() => addNlResult(l)}
+                    style={{ flex: 1, maxWidth: 120, height: 100, fontSize: 32, fontWeight: "bold", backgroundColor: color, color: C.white, border: nlLastResult === l ? `3px solid ${C.gold}` : "3px solid transparent", borderRadius: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, WebkitTapHighlightColor: "transparent", touchAction: "manipulation" }}>
+                    {l}<span style={{ fontSize: 11, fontWeight: "normal", opacity: 0.8 }}>{sub}</span>
+                  </button>
+                ))}
+              </div>
+              {nlLastResult && <div style={{ color: C.gray, fontSize: 13 }}>Last: <b style={{ color: nlLastResult === "B" ? C.red : nlLastResult === "P" ? C.blue : C.gray }}>{nlLastResult}</b></div>}
+              <button onClick={finishNlGame} disabled={loading} style={{ marginTop: 8, padding: "10px 28px", fontSize: 13, backgroundColor: "transparent", color: "#ff8844", border: "1px solid #ff8844", borderRadius: 8, cursor: "pointer" }}>End Session</button>
+            </>
           )}
         </div>
         <FlashOverlay />

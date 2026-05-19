@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openssl rand *)",
+      "Bash(node -e \"require\\('./server.js'\\)\")",
+      "Bash(node -e \"const fs=require\\('fs'\\); const src=fs.readFileSync\\('/Users/barisarmagan/Desktop/King backend/server.js','utf8'\\); require\\('vm'\\).runInNewContext\\('\\(function\\(\\){'+src+'}\\)', {require, console, process, __dirname: \\\\\"/Users/barisarmagan/Desktop/King backend\\\\\", __filename: \\\\\"server.js\\\\\"}\\)\")",
+      "Bash(node --check \"/Users/barisarmagan/Desktop/King backend/server.js\")",
+      "Bash(node -e ' *)",
+      "Bash(sed -n '/^function nextLevelProcessResult/,/^}/p' '/Users/barisarmagan/Desktop/King backend/server.js')",
+      "Bash(npm run *)"
+    ]
+  }
+}

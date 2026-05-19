@@ -11,5 +11,11 @@
                   "src": "/(.*)",
                   "dest": "server.js"
           }
+    ],
+    "crons": [
+          {
+                  "path": "/admin/send-report-cron",
+                  "schedule": "0 21 * * *"
+          }
     ]
 }
